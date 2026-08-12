@@ -1652,51 +1652,104 @@ body{
     font-weight: bold;
     pointer-events: none;
 }
-
 /*======================================
-            section voiture
-==============================*/
-.section-voiture{
-    margin: 80px 8%;
+        section voiture
+======================================*/
+.section-voiture {
+    margin: 80px 6%;
 }
-.bande{
-    margin: 10px 0;
-    padding: 10px;
-    background-color: rgb(187, 196, 196);
-    border-radius: 6px;
+
+.titre h1 {
+    font-size: 28px;
+    font-weight: 500;
+    margin-bottom: 16px;
 }
-.bande a{
-    color: black;
-    margin: 10px;
+.titre h1 span {
+    color: var(--color);
 }
-.cars{
-    margin: 20px 0;
+
+.bande {
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin: 16px 0 28px;
+    padding: 10px 16px;
+    background: #f5f5f5;
+    border-left: 3px solid var(--color);
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+}
+.bande a {
+    color: #555;
+    text-decoration: none;
+    transition: color 0.15s;
+}
+.bande a:hover { color: var(--color); }
+.bande a + a::before {
+    content: '/';
+    margin-right: 8px;
+    color: #bbb;
+}
+
+.cars {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 20px;
+    margin-top: 8px;
+}
+
+.car a {
+    display: block;
+    text-decoration: none;
+    background: #fff;
+    border: 0.5px solid #e0e0e0;
+    border-radius: 12px;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+.car a:hover {
+    transform: translateY(-4px);
+    border-color: var(--color);
+    box-shadow: 0 8px 24px rgba(192,57,43,0.1);
+}
+
+.car-img-wrap {
+    background: #f7f7f7;
+    display: flex;
     align-items: center;
     justify-content: center;
+    height: 140px;
+    overflow: hidden;
 }
-.cars .car{
-    width: 280px;
-    height: 160px;
-    text-align: center;
-    cursor: pointer;
-    transition-duration: .4s;
-    margin: 15px;
-}
-.cars .car:hover{
-    transform: scale(1.1);
-}
-.cars .car img{
+.car-img-wrap img {
     width: 100%;
-    height: 120px;
+    height: 140px;
+    object-fit: cover;
+    transition: transform 0.3s;
 }
-.cars .car h3{
-    margin: 10px 0;
+.car a:hover .car-img-wrap img {
+    transform: scale(1.05);
 }
-.cars .car a{
-    text-decoration: none;
-    color: black;
+
+.car-label {
+    padding: 10px 14px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 0.5px solid #f0f0f0;
+}
+.car-label h3 {
+    font-size: 14px;
+    font-weight: 500;
+    color: #222;
+}
+.car-label span {
+    font-size: 11px;
+    color: var(--color);
+    background: #fdf0ef;
+    border-radius: 20px;
+    padding: 2px 8px;
+    font-weight: 500;
 }
 /*==================================
         page detail produit
@@ -2111,233 +2164,360 @@ body{
     animation: fadeInUp 0.6s ease-out 0.2s both;
 }
 /*======================================
-            page categorie
+        page categorie
 ======================================*/
-.page-categorie{
-    margin: 80px 8%;
+.page-categorie {
+    margin: 80px 6%;
 }
-.menu-categorie{
-    margin: 40px 0;
+
+.titre h1 {
+    font-size: 28px;
+    font-weight: 500;
+    margin-bottom: 16px;
+}
+.titre h1 span {
+    color: var(--color);
+}
+
+.bande {
     display: flex;
-    border-bottom: 2px solid var(--color);
-    overflow-x: scroll;
+    align-items: center;
+    gap: 4px;
+    margin: 16px 0 28px;
+    padding: 10px 16px;
+    background: #f5f5f5;
+    border-left: 3px solid var(--color);
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
 }
-.menu-categorie::-webkit-scrollbar{
-    display: none;
+.bande a { color: #555; text-decoration: none; transition: color 0.15s; }
+.bande a:hover { color: var(--color); }
+.bande a + a::before { content: '/'; margin-right: 8px; color: #bbb; }
+
+.menu-categorie {
+    display: flex;
+    gap: 6px;
+    margin: 28px 0;
+    overflow-x: auto;
+    border-bottom: 2px solid #eee;
+    scrollbar-width: none;
+    padding-bottom: 0;
 }
-.menu-categorie a{
-    margin-right: 6px;
-    padding: 8px 20px;
-    background-color: #e5e5e5;
-    color: black;
-    cursor: pointer;
-    transition-duration: .3s;
+.menu-categorie::-webkit-scrollbar { display: none; }
+.menu-categorie a {
+    flex-shrink: 0;
+    padding: 9px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #555;
     text-decoration: none;
+    border-radius: 6px 6px 0 0;
+    border: 0.5px solid transparent;
+    border-bottom: none;
+    background: transparent;
+    transition: color 0.15s, background 0.15s;
+    position: relative;
+    bottom: -2px;
 }
-.menu-categorie a.active{
-    background-color: var(--color);
-    color: white;
+.menu-categorie a:hover { color: var(--color); background: #fdf0ef; }
+.menu-categorie a.active {
+    color: var(--color);
+    background: #fff;
+    border-color: #eee;
+    border-bottom-color: #fff;
 }
-.menu-categorie a:hover{
-    background-color: var(--color);
-    color: white;
+.menu-categorie a.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0; right: 0;
+    height: 2px;
+    background: var(--color);
 }
-.categorie-container{
+
+.categorie-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 8px;
+}
+
+.categorie-item a {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    text-decoration: none;
+    background: #fff;
+    border: 0.5px solid #e0e0e0;
+    border-radius: 12px;
+    overflow: hidden;
+    height: 100%;
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
-.categorie-item{
-    margin: 10px 1%;
-    width: 23%;
-    border: 1px solid black;
-    border-radius: 6px;
-    height: 250px;
-    text-align: center;
-    transition-duration: .4s;
-    font-size: 14px;
+.categorie-item a:hover {
+    transform: translateY(-4px);
+    border-color: var(--color);
+    box-shadow: 0 8px 20px rgba(192,57,43,0.1);
+}
+
+.categorie-img-wrap {
+    background: #f7f7f7;
+    height: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     overflow: hidden;
 }
-.categorie-item:hover{
-    background-color: rgb(44, 201, 44);
-}
-.categorie-item a{
-    text-decoration: none;
-    color: black;
-}
-.categorie-item img{
-    width: 90%;
+.categorie-img-wrap img {
+    width: 100%;
     height: 150px;
+    object-fit: cover;
+    transition: transform 0.3s;
 }
-@media screen and (max-width:950px) {
-    .categorie-item{
-        width: 30%;
-    }
+.categorie-item a:hover .categorie-img-wrap img { transform: scale(1.05); }
+
+.categorie-label {
+    padding: 10px 14px 12px;
+    border-top: 0.5px solid #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
 }
-@media screen and (max-width:650px) {
-    .categorie-item{
-        width: 46%;
-    }
+.categorie-label h3 {
+    font-size: 13px;
+    font-weight: 500;
+    color: #222;
+    line-height: 1.3;
 }
-/*===========================)==============
+.categorie-label i {
+    font-size: 13px;
+    color: var(--color);
+    flex-shrink: 0;
+}
+/*==========================================
         panier
 ==========================================*/
-#text-panier{
-    margin: 50px;
-    font-weight: 600;
+#text-panier {
+    margin: 48px 40px 16px;
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    letter-spacing: 0.3px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
-.panier{
-    padding: 10px;
-    margin: 40px;
-    overflow-y: hidden;
-}
-@media screen and (max-width:600px) {
-    .panier{
-        margin: 40px 1px;
-        overflow-x: scroll;
-    }
-}
-.panier table{
-    width: 100%;
-    text-align: center;
-    border-collapse: collapse;
-    margin-bottom: 30px;
-}
-.panier tr:nth-child(even){
-    background-color: #f2f2f2;
-}
-.panier tr:hover {
-    background-color: #ddd;
-}
-.panier td,.panier th{
-    border: 1px solid #ddd;
-    padding: 3px;
-}
-.panier th{
-    padding: 10px;
-    background-color: var(--color);
-    color: white;
-    font-weight: 600;
-}
-.panier td img{
-    width: 80px;
-    height: 80px;
-}
-.panier td a{
-    color: black;
-    text-decoration: none;
-}
-.panier td i{
-    cursor: pointer;
-    font-size: 22px;
-}
-.panier td input[type=number]{
-    height: 30px;
-    width: 50px;
-    padding: 5px;
-    font-size: 18px;
-}
-#valider{
-    height: 40px;
-    border: none;
-    background-color: rgb(10, 172, 10);
-    color: white;
-    border-radius: 5px;
-    font-size: 18px;
-    margin: 20px;
-    padding: 10px 18px;
-    cursor: pointer;
-    transition-duration: .3s;
-    text-decoration: none;
-}
-#valider:hover{
-    background-color: green;
-}
-.panier .prix-total{
-    background-color: rgb(10, 172, 10);
-    border-radius: 8px;
-    padding: 4px 8px;
+#text-panier::before {
+    content: '';
     display: inline-block;
-    color: white;
+    width: 4px;
+    height: 22px;
+    background: var(--color);
+    border-radius: 2px;
 }
-/*=====================================
-            commande
-=========================================*/
-#text-commande{
-    margin: 40px;
-    font-size: 22px;
-    font-weight: 600;
+
+.panier {
+    margin: 0 40px 40px;
+    background: var(--color-background-primary, #fff);
+    border: 0.5px solid #ddd;
+    border-radius: 12px;
+    overflow: hidden;
 }
-.commande{
-    text-align: center;
-    margin: 0 auto;
-    width: fit-content;
+@media screen and (max-width: 600px) {
+    .panier { margin: 0 8px 40px; overflow-x: auto; }
 }
-.commande form{
-    border: 1px solid var(--color);
-    margin: 40px;
-    padding: 15px;
-    border-radius: 8px;
-}
-.commande form h3{
-    margin: 10px;
-}
-.commande form input,.commande form select{
-    width: 80%;
-    height: 40px;
-    border: 1px solid rgb(148, 148, 11);
-    border-radius: 5px;
-    outline: none;
-    margin: 8px 2%;
-    padding: 8px;
-    font-size: 16px;
-}
-.commande form input[type=submit]{
-    background-color: rgb(10, 172, 10);
-    color: white;
-    width: 20%;
-    letter-spacing: 1px;
-    cursor: pointer;
-}
-.commande form input[type=submit]:hover{
-    background-color: green;
-}
-@media screen and (max-width:600px) {
-    .commande form input[type=submit]{
-        width: 50%;
-    }
-}
-.resume{
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-.resume table{
+.panier table {
+    width: 100%;
     border-collapse: collapse;
-    width: 80%;
-    margin: 8px 2%;
-    background-color: #eee;
-    border-radius: 8px;
+    text-align: center;
 }
-.resume table td{
-    padding: 10px;
-    border-bottom: 1px dashed black;
+.panier thead tr {
+    background: var(--color);
 }
-#domicile,#bureau{
-    display: none;
+.panier th {
+    padding: 12px 10px;
+    color: #fff;
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border: none;
 }
-.prixlivraison .choix{
+.panier tbody tr {
+    border-bottom: 0.5px solid #e5e5e5;
+    transition: background 0.15s;
+}
+.panier tbody tr:last-child { border-bottom: none; }
+.panier tbody tr:hover { background: #f8f8f8; }
+.panier td {
+    padding: 12px 8px;
+    vertical-align: middle;
+    border: none;
+    font-size: 14px;
+}
+.panier td img {
+    width: 72px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 0.5px solid #e5e5e5;
+}
+.panier td a { color: #666; text-decoration: none; }
+.panier td a:hover { color: var(--color); }
+.panier td i { font-size: 18px; cursor: pointer; }
+.panier td input[type=number] {
+    width: 60px;
+    height: 34px;
+    padding: 4px 8px;
+    font-size: 14px;
+    border: 0.5px solid #ccc;
+    border-radius: 6px;
+    background: #f5f5f5;
+    text-align: center;
+    outline: none;
+}
+.panier td input[type=number]:focus {
+    border-color: var(--color);
+    box-shadow: 0 0 0 2px rgba(192,57,43,0.12);
+}
+.panier .prix-total {
+    background: #eaf3de;
+    color: #27500a;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-block;
+}
+.panier-footer {
+    padding: 16px 20px;
+    border-top: 0.5px solid #e5e5e5;
+    display: flex;
+    justify-content: flex-end;
+    background: #f8f8f8;
+}
+#valider {
+    height: 38px;
+    border: none;
+    background: #27500a;
+    color: #fff;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 0 24px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+#valider:hover { background: #3b6d11; }
+
+/*==========================================
+        commande
+==========================================*/
+#text-commande {
+    margin: 48px 40px 16px;
+    font-size: 20px;
+    font-weight: 500;
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 10px;
 }
-.prixlivraison .choix label{
-    border: 2px solid var(--color);
+#text-commande::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 22px;
+    background: var(--color);
+    border-radius: 2px;
+}
+
+.commande {
+    margin: 0 40px 40px;
+    max-width: 560px;
+}
+.commande form {
+    background: #fff;
+    border: 0.5px solid #ddd;
+    border-radius: 12px;
+    padding: 24px;
+}
+.commande form h3 {
+    font-size: 15px;
+    font-weight: 500;
+    color: #666;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 0.5px solid #e5e5e5;
+}
+.commande form input:not([type=submit]):not([type=radio]),
+.commande form select {
+    width: 100%;
+    height: 40px;
+    border: 0.5px solid #ccc;
     border-radius: 6px;
-    cursor: pointer;
-    padding: 4px 6px;
-    margin: 8px 0;
+    outline: none;
+    margin-bottom: 12px;
+    padding: 0 12px;
+    font-size: 14px;
+    background: #f5f5f5;
+    transition: border-color 0.15s, box-shadow 0.15s;
 }
-.choix input[type=radio]:checked + label , .choix label:hover{
-    background-color: var(--color);
-    color: white;
+.commande form input:focus,
+.commande form select:focus {
+    border-color: var(--color);
+    box-shadow: 0 0 0 2px rgba(192,57,43,0.1);
+    background: #fff;
+}
+.commande form input[type=submit] {
+    width: 100%;
+    height: 42px;
+    background: var(--color);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-top: 4px;
+    letter-spacing: 0.3px;
+}
+.commande form input[type=submit]:hover { background: #a93226; }
+
+@media screen and (max-width: 600px) {
+    .commande { margin: 0 8px 40px; }
+}
+
+.resume {
+    margin: 16px 0;
+    background: #f5f5f5;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 0.5px solid #e5e5e5;
+}
+.resume table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+.resume table td {
+    padding: 10px 14px;
+    border-bottom: 0.5px solid #e5e5e5;
+}
+.resume table tr:last-child td { border-bottom: none; font-weight: 500; }
+#domicile, #bureau { display: none; }
+.prixlivraison { display: flex; gap: 8px; margin-top: 8px; }
+.prixlivraison .choix { display: flex; align-items: center; }
+.prixlivraison .choix label {
+    border: 0.5px solid var(--color);
+    border-radius: 20px;
+    cursor: pointer;
+    padding: 5px 14px;
+    font-size: 13px;
+    color: var(--color);
+    transition: background 0.15s, color 0.15s;
+}
+.choix input[type=radio]:checked + label,
+.choix label:hover {
+    background: var(--color);
+    color: #fff;
 }

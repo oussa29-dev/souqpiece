@@ -82,6 +82,7 @@
                         ?>
                         <option value="<?= $cateLib['id_categorie'] ?>"><?= $cateLib['libelle'] ?></option>
                         <?php } ?>
+                        <option value="0">Sans categorie</option>
                     </select>
                     <select name="sous_categorie" id="sousSelect">
                         <option value="sous_categorie">sous categorie</option>
@@ -254,6 +255,7 @@
             $baseUrl = $_SERVER['PHP_SELF'] . '?'; 
             if (isset($_GET['modele'])) $baseUrl .= 'modele=' . urlencode($_GET['modele']) . '&';
             if (isset($_GET['sous_categorie'])) $baseUrl .= 'sous_categorie=' . urlencode($_GET['sous_categorie']) . '&';
+            if (isset($_GET['categorie'])) $baseUrl .= 'categorie=' . urlencode($_GET['categorie']) . '&';
             if (isset($_GET['reference'])) $baseUrl .= 'reference=' . urlencode($_GET['reference']) . '&';
 
             // Affichage de la pagination

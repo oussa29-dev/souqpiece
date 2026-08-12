@@ -41,8 +41,13 @@
             ?>
             <div class="car">
                 <a href="categorie.php?id=<?=$voiture['id_voiture']?>&sous=<?=$first_row['id_categorie']?>">
-                    <img src="img/voiture/<?=$voiture['img']?>" loading="lazy" alt="Piéce détachées de <?=$voiture['modele']?>">
-                    <h3><?=$voiture['modele']?></h3>
+                    <div class="car-img-wrap">
+                        <img src="img/voiture/<?=$voiture['img']?>" loading="lazy" alt="Pièces de <?=$voiture['modele']?>">
+                    </div>
+                    <div class="car-label">
+                        <h3><?=$voiture['modele']?></h3>
+                        <span>Voir pièces</span>
+                    </div>
                 </a>
             </div>
             <?php } ?>

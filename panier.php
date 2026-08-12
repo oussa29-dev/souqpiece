@@ -203,7 +203,9 @@
             ?>
             </tbody>
         </table>
-        <input type="submit" id="valider" name="valider" value="Valider la commande">
+        <div class="panier-footer">
+            <input type="submit" id="valider" name="valider" value="Valider la commande">
+        </div>
     </form>
 
     </div>

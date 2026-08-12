@@ -186,11 +186,11 @@
                         
                         // Récupération des données du fichier Excel - CORRECTION ICI
                         $reference = trim($sheet->getCell('A' . $rowIndex)->getCalculatedValue() ?? '');
-                        $libelle = trim($sheet->getCell('B' . $rowIndex)->getCalculatedValue() ?? '');
-                        $marque = trim($sheet->getCell('C' . $rowIndex)->getCalculatedValue() ?? '');
-                        $quant = (int)($sheet->getCell('D' . $rowIndex)->getCalculatedValue() ?? 0);
+                        $libelle = trim($sheet->getCell('C' . $rowIndex)->getCalculatedValue() ?? '');
+                        $marque = trim($sheet->getCell('D' . $rowIndex)->getCalculatedValue() ?? '');
+                        $quant = (int)($sheet->getCell('E' . $rowIndex)->getCalculatedValue() ?? 0);
                        // $prix = (float)($sheet->getCell('G' . $rowIndex)->getCalculatedValue() ?? 0);
-                        $prix_initial = (float)$sheet->getCell('G' . $rowIndex)->getCalculatedValue();
+                        $prix_initial = (float)$sheet->getCell('H' . $rowIndex)->getCalculatedValue();
                         $prix = $prix_initial;
                         $stock = ($quant > 0) ? 1 : 0;
                         

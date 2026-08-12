@@ -63,8 +63,13 @@
         ?>
             <div class="categorie-item">
                 <a href="product.php?id_voiture=<?=$id?>&sous=<?=$sou['id_sous_categorie']?>">
-                    <img src="img/categories/sous_categorie/<?=$sou['img']?>" loading="lazy" alt="pièces détachées en Algerie <?=$sou['libelle']?>">
-                    <h3><?=$sou['libelle']?></h3>
+                    <div class="categorie-img-wrap">
+                        <img src="img/categories/sous_categorie/<?=$sou['img']?>" loading="lazy" alt="<?=$sou['libelle']?>">
+                    </div>
+                    <div class="categorie-label">
+                        <h3><?=$sou['libelle']?></h3>
+                        <i>›</i>
+                    </div>
                 </a>
             </div>
         <?php } ?>

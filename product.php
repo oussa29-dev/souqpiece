@@ -207,6 +207,9 @@
                             $placeholders = str_repeat('?,', count($idProds) - 1) . '?';
                             $conditions[] = 'produit.id_produit IN (' . $placeholders . ')';
                             $params = array_merge($params, $idProds);
+                        }else {
+                            // Forcer la requête à ne rien trouver si aucun ID ne correspond à la recherche
+                            $conditions[] = 'produit.id_produit = 0';
                         }
                     } else {
                         // Recherche normale (sans étoiles et sans espaces significatifs) - votre code original
@@ -229,63 +232,32 @@
                             $placeholders = str_repeat('?,', count($idProds) - 1) . '?';
                             $conditions[] = 'produit.id_produit IN (' . $placeholders . ')';
                             $params = array_merge($params, $idProds);
+                        }else {
+                            // Forcer la requête à ne rien trouver si aucun ID ne correspond à la recherche
+                            $conditions[] = 'produit.id_produit = 0';
                         }
-                        // } else {
-                        //     $jsonFile = 'dashboard/data/stock.json';
-                        //     if (file_exists($jsonFile)) {
-                        //         $jsonData = json_decode(file_get_contents($jsonFile), true);
-                        //         $searchTerm = trim($_GET['query']);
-                                
-                        //         // Filtrer les références correspondantes
-                        //         $filteredItems = array_filter($jsonData, function($item) use ($searchTerm) {
-                        //             return stripos($item['reference'], $searchTerm) !== false || 
-                        //                    stripos($item['libelle'], $searchTerm) !== false;
-                        //         });
-                                
-                        //         // Limiter aux 12 premiers pour la pagination
-                        //         $filteredItems = array_slice($filteredItems, $offset, $itemsPerPage);
-                                
-                        //         // Générer les produits virtuels
-                        //         foreach ($filteredItems as $item) {
-                        //             // Nettoyer la référence et la marque
-                        //             $ref = htmlspecialchars($item['reference']);
-                        //             $marques = preg_split('/[\/\\\\]/', $item['marque']); // Gère / et \/
-                        //             $marque = htmlspecialchars(trim($marques[0]));
-                        //             $prix = htmlspecialchars($item['prix']);
-                        //             $libelle = htmlspecialchars($item['libelle']);
-                        //             echo '<div class="produit">';
-                        //             echo $item['stock'] == 0 ? '<h3 class="stock">non disponible</h3>' : '';
-                        //             echo '<a href="produit.php?id='.$ref.'&from_json=1">';
-                        //             echo '<img src="img/produit/aucune.png" alt="'.$ref.'" loading="lazy">';
-                        //             echo '<h2>'.$libelle.'</h2>';
-                        //             echo '<h4>'.$marque.'</h4>';
-                        //             echo '<h4 style="margin-bottom:10px;font-size:10px"></h4>';
-                        //             echo '<h4>Pièce détachée</h4>';
-                        //             echo '<h2 id="prix">'.$prix.' DA</h2>';
-                        //             echo '<i class="fa-solid fa-cart-shopping" id="ajouter-panier"></i>';
-                        //             echo '</a></div>';
-                        //         }
-                                
-                        //         if (empty($filteredItems)) {
-                        //             $sqlRech = $pdo->prepare('INSERT INTO recherche(mot) VALUE(?)');
-                        //             $sqlRech->execute([$ref]);
-                        //             echo "<p>Aucun produit trouvé pour votre recherche.</p>";
-                        //         }
-                        //         return;
-                        //     }
-                        // }
                     }
                 }
                 
                 // Générer la requête SQL avec les filtres
                 $query = '
-                    SELECT produit.*, pvd.id_voiture as voiture
+                    SELECT 
+                        produit.*, 
+                        pvd.id_voiture as voiture,
+                        v.modele,
+                        m.libelle as marque_nom,
+                        c.libelle as categorie_nom
                     FROM produit
                     LEFT JOIN pvd ON produit.id_produit = pvd.id_produit
+                    LEFT JOIN voiture v ON pvd.id_voiture = v.id_voiture
+                    LEFT JOIN marque m ON v.id_marque = m.id_marque
+                    LEFT JOIN categorie c ON produit.id_categorie = c.id_categorie
                 ';
                 if (!empty($conditions)) {
                     $query .= ' WHERE ' . implode(' AND ', $conditions);
                 }
+                // On ajoute un GROUP BY pour éviter les doublons si un produit est dans plusieurs PVD
+                $query .= ' GROUP BY produit.id_produit';
                 $query .= ' LIMIT ' . (int)$itemsPerPage . ' OFFSET ' . (int)$offset;
             
                 $stmt = $pdo->prepare($query);
@@ -296,22 +268,18 @@
 
                 // Si aucun produit trouvé
                 if (empty($produits)) {
+                    if(empty($idProds)){
+                        $sqlRech = $pdo->prepare('INSERT INTO recherche(mot) VALUE(?)');
+                        $sqlRech->execute([$ref]);
+                    }
                     echo "<p>Aucun produit trouvé pour votre recherche.</p>";
                 } 
 
                 foreach($produits as $produit){
                     
-                    $sqlMarque = $pdo->prepare('SELECT libelle FROM marque WHERE id_marque= (SELECT id_marque FROM voiture WHERE id_voiture=?)');
-                    $sqlMarque->execute([$produit['voiture']]);
-                    $marque = $sqlMarque->fetchColumn();
-                    
-                    $sqlModele = $pdo->prepare('SELECT modele FROM voiture WHERE id_voiture=?');
-                    $sqlModele->execute([$produit['voiture']]);
-                    $modele = $sqlModele->fetchColumn(); 
-
-                    $sqlCate = $pdo->prepare('SELECT libelle FROM categorie WHERE id_categorie=?');
-                    $sqlCate->execute([$produit['id_categorie']]);
-                    $categorie = $sqlCate->fetchColumn();
+                    $marque = $produit['marque_nom'];
+                    $modele = $produit['modele'];
+                    $categorie = $produit['categorie_nom'];
 
                     if($produit['img1'] == null){
                         $produit['img1'] = 'aucune.png';
