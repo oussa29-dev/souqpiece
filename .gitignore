@@ -3,3 +3,10 @@
 /dashboard/data/
 /dashboard/database.php
 /dashboard/error_log
+
+# Database dumps — contain credentials (plaintext admin password). Never commit.
+/backup/
+*.sql
+
+# Local-only environment config (Step Zero: local test environment)
+/dashboard/database.local.php
