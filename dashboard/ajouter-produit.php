@@ -18,7 +18,7 @@
 
     <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300&family=Oswald&family=Pacifico&family=Roboto&family=Roboto+Slab:wght@300&display=swap" rel="stylesheet">
 
-    <script src="https://kit.fontawesome.com/abbd21db44.js" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="../css/fontawesome/css/all.min.css">
 
 </head>
 
