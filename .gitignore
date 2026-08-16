@@ -10,3 +10,6 @@
 
 # Local-only environment config (Step Zero: local test environment)
 /dashboard/database.local.php
+
+# AI assistant - LLM provider API key, never commit
+/ai/config.php

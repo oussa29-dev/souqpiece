@@ -80,3 +80,4 @@
         </div>
     </div>
 </footer>
+<?php include(__DIR__ . '/../ai/widget.php'); ?>
