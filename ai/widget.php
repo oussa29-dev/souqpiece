@@ -28,13 +28,14 @@ if (empty($__ai_config['enabled']) && empty($_SESSION['ai_preview'])) {
         </div>
         <div id="ai-chat-messages"></div>
         <div id="ai-chat-lang-select" hidden>
+            <i class="fas fa-microphone"></i>
             <button type="button" data-lang="ar-DZ" class="active">AR</button>
             <button type="button" data-lang="fr-FR">FR</button>
             <button type="button" data-lang="en-US">EN</button>
         </div>
         <form id="ai-chat-form" autocomplete="off">
             <button type="button" id="ai-chat-mic" aria-label="إدخال صوتي" hidden><i class="fas fa-microphone"></i></button>
-            <input type="text" id="ai-chat-input" placeholder="اكتب سؤالك… (بالعربية أو بالفرنسية)" maxlength="1000">
+            <input type="text" id="ai-chat-input" placeholder="اكتب سؤالك…" maxlength="1000">
             <button type="submit" id="ai-chat-send" aria-label="إرسال"><i class="fas fa-paper-plane"></i></button>
         </form>
     </div>
@@ -113,9 +114,13 @@ if (empty($__ai_config['enabled']) && empty($_SESSION['ai_preview'])) {
 }
 #ai-chat-send:disabled { opacity: .5; cursor: default; }
 
+/* Aligned under the mic button (not flex-end) and prefixed with a mic
+   icon, so it reads as "language for the mic" rather than a general
+   chat setting - it has no effect on typed messages. */
 #ai-chat-lang-select {
-    display: flex; gap: 6px; padding: 0 10px 8px; justify-content: flex-end;
+    display: flex; align-items: center; gap: 6px; padding: 0 10px 8px; justify-content: flex-start;
 }
+#ai-chat-lang-select i { color: #999; font-size: 12px; }
 #ai-chat-lang-select button {
     border: 1px solid #ddd; background: #fff; color: #555; border-radius: 12px;
     font-size: 11px; font-weight: 600; padding: 3px 10px; cursor: pointer;
