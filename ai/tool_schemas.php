@@ -37,7 +37,7 @@ function ai_tool_schemas(): array
         ],
         [
             'name' => 'resolve_vehicle',
-            'description' => 'Resolve free-text vehicle mentions (brand and/or model, in French or transliterated Arabic) to an id_voiture usable by other tools. Returns up to 5 ranked candidates.',
+            'description' => 'Resolve free-text vehicle mentions (brand and/or model, in French or transliterated Arabic) to an id_voiture usable by other tools. Returns {unique: bool, matches: [up to 5 ranked candidates]}. `unique` is the deterministic signal for whether the customer needs to be asked to specify the exact model - see rule 9 in your instructions, it is not a judgment call.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
