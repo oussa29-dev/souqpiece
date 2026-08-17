@@ -48,6 +48,16 @@ foreach ($r as $row) {
     check('  every row matches requested vehicle', (int)$row['voiture_id'] === 59, $row);
 }
 
+// Regression: a broad query with more matches than the limit must return
+// the SAME subset every time, not an arbitrary one (real bug found via a
+// production conversation audit - MySQL's tie order among equal-stock rows
+// is unspecified without a deterministic secondary sort key).
+$r1 = ai_search_products($pdo, 'frein', null, null, 8);
+$r2 = ai_search_products($pdo, 'frein', null, null, 8);
+check('broad search is deterministic across repeated identical calls',
+    array_column($r1, 'id_produit') === array_column($r2, 'id_produit'),
+    ['first' => array_column($r1, 'id_produit'), 'second' => array_column($r2, 'id_produit')]);
+
 $r = ai_search_products($pdo, 'ZZZZZZ_NO_MATCH_XYZ');
 check('nonsense query returns empty array, not error', $r === []);
 

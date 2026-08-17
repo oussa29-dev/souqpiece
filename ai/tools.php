@@ -86,10 +86,15 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     }
 
     // A budget-constrained search implies price relevance matters more
-    // than default stock-first ordering.
+    // than default stock-first ordering. id_produit ASC is a deterministic
+    // tiebreaker - without it, MySQL's order among rows tied on stock (or
+    // price) is unspecified, so which subset of matches survives LIMIT can
+    // silently differ between two otherwise-identical calls (found via a
+    // production conversation audit: a broad "frein" search returned a
+    // completely different valid 8-row set seconds apart).
     $orderBy = ($min_price !== null || $max_price !== null)
-        ? 'produit.prix ASC, produit.stock DESC'
-        : 'produit.stock DESC';
+        ? 'produit.prix ASC, produit.stock DESC, produit.id_produit ASC'
+        : 'produit.stock DESC, produit.id_produit ASC';
 
     $sql = '
         SELECT
