@@ -7,6 +7,9 @@
 # Database dumps — contain credentials (plaintext admin password). Never commit.
 /backup/
 *.sql
+# Exception: db/ holds hand-written DDL only (indexes, migrations) - no data,
+# no credentials - and belongs in version control. Never put a dump here.
+!/db/*.sql
 
 # Local-only environment config (Step Zero: local test environment)
 /dashboard/database.local.php
