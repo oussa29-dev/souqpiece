@@ -16,18 +16,6 @@ function ai_escape_like(string $value): string
     return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
 }
 
-// True if every character in $term is representable in ISO-8859-1
-// (latin1) - i.e. safe to bind as a query parameter against reference.reference
-// or pvd.description, both latin1-encoded columns. Arabic (and most other
-// non-Western-European text) is not representable and round-trips lossily
-// through this conversion, which is exactly the cheap, reliable way to
-// detect it without a character-by-character allow-list.
-function ai_is_latin1_safe(string $term): bool
-{
-    $roundTrip = @mb_convert_encoding(mb_convert_encoding($term, 'ISO-8859-1', 'UTF-8'), 'UTF-8', 'ISO-8859-1');
-    return $roundTrip === $term;
-}
-
 // Lowercase + accent-fold ("démarreur" -> "demarreur") for comparing
 // against the alias dictionary. NOT iconv('...TRANSLIT') - empirically
 // verified on this stack to corrupt text instead of folding it cleanly
@@ -124,15 +112,6 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         $terms = [$searchTerm];
     }
 
-    // reference/description are latin1-encoded columns that cannot even
-    // store Arabic characters - binding a non-latin1-representable term as
-    // a query parameter against them throws a hard "illegal mix of
-    // collations" PDOException (found while testing this exact feature: a
-    // raw Arabic term crashed the reference search). Since such a term is
-    // guaranteed to never match those columns anyway, skip querying them
-    // instead of crashing.
-    $latin1Safe = array_reduce($terms, fn($ok, $t) => $ok && ai_is_latin1_safe($t), true);
-
     // Candidate-gathering queries are NOT capped - a fixed LIMIT here was
     // tried and reverted (see git history: "candidateCap = 150") after
     // proving it silently dropped real, in-stock, vehicle-linked products
@@ -146,43 +125,37 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     // that down to ~140-280ms even for the broadest terms in this catalog
     // (up to ~920 raw candidates for "amortisseur"), which is what makes
     // removing the cap safe instead of just fast.
-    $idProdsRef = [];
-    if ($latin1Safe) {
-        $refConditions = [];
-        $refParams = [];
-        foreach ($terms as $term) {
-            $refConditions[] = 'reference LIKE ?';
-            $refParams[] = '%' . ai_escape_like($term) . '%';
-        }
-        $sqlRef = $pdo->prepare('SELECT id_produit FROM reference WHERE ' . implode(' AND ', $refConditions));
-        $sqlRef->execute($refParams);
-        $idProdsRef = $sqlRef->fetchAll(PDO::FETCH_COLUMN);
+    $refConditions = [];
+    $refParams = [];
+    foreach ($terms as $term) {
+        $refConditions[] = 'reference LIKE ?';
+        $refParams[] = '%' . ai_escape_like($term) . '%';
     }
+    $sqlRef = $pdo->prepare('SELECT id_produit FROM reference WHERE ' . implode(' AND ', $refConditions));
+    $sqlRef->execute($refParams);
+    $idProdsRef = $sqlRef->fetchAll(PDO::FETCH_COLUMN);
 
     // description/libelle expand each term to known spelling variants,
     // synonyms and Arabic/Darija translations (each term's variants OR'd
     // together, terms still AND'd together) - reference numbers do not,
     // since expanding e.g. "demarreur" synonyms into an OEM-code search is
     // meaningless and would only add noise/cost with zero benefit.
-    $idProdsDesc = [];
-    if ($latin1Safe) {
-        // pvd.description is also latin1 - same crash risk as reference.
-        $descConditions = [];
-        $descParams = [];
-        foreach ($terms as $term) {
-            $orParts = [];
-            foreach (ai_expand_term_variants($term) as $variant) {
-                $orParts[] = 'description LIKE ?';
-                $descParams[] = '%' . ai_escape_like($variant) . '%';
-            }
-            $descConditions[] = '(' . implode(' OR ', $orParts) . ')';
+    $descConditions = [];
+    $descParams = [];
+    foreach ($terms as $term) {
+        $orParts = [];
+        foreach (ai_expand_term_variants($term) as $variant) {
+            $orParts[] = 'description LIKE ?';
+            $descParams[] = '%' . ai_escape_like($variant) . '%';
         }
-        $sqlDesc = $pdo->prepare('SELECT DISTINCT pvd.id_produit FROM pvd WHERE ' . implode(' AND ', $descConditions));
-        $sqlDesc->execute($descParams);
-        $idProdsDesc = $sqlDesc->fetchAll(PDO::FETCH_COLUMN);
+        $descConditions[] = '(' . implode(' OR ', $orParts) . ')';
     }
+    $sqlDesc = $pdo->prepare('SELECT DISTINCT pvd.id_produit FROM pvd WHERE ' . implode(' AND ', $descConditions));
+    $sqlDesc->execute($descParams);
+    $idProdsDesc = $sqlDesc->fetchAll(PDO::FETCH_COLUMN);
 
-    // produit.libelle is utf8mb4 - safe for Arabic/any script, always searched.
+    // produit.libelle, reference and pvd.description are all utf8mb4 (N3
+    // migration) - safe for Arabic/any script, all always searched.
     $libConditions = [];
     $libParams = [];
     foreach ($terms as $term) {

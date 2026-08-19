@@ -6,11 +6,12 @@
 // empty), the same way this seed entry was found.
 
 // Arabic/Darija words -> their French catalog equivalent(s). Checked
-// BEFORE accent-folding (transliteration isn't an accent issue). This
-// matters more than it looks: reference.reference and pvd.description are
-// latin1-encoded and cannot even store Arabic characters, so an Arabic
-// term searched there is silently lost - translating to French before the
-// database call is the only way these terms can ever match at all.
+// BEFORE accent-folding (transliteration isn't an accent issue). The
+// catalog itself is French, so even now that every text column is
+// utf8mb4 (searchable in Arabic), an Arabic term still only matches
+// products whose libelle/description happens to contain Arabic text
+// (rare) unless it's translated to French first - this dictionary is
+// what makes those terms match at all.
 function ai_search_arabic_aliases(): array
 {
     return [
