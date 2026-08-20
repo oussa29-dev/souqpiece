@@ -15,6 +15,11 @@
         .rc-tab b{font-variant-numeric:tabular-nums}
         .rc-tab.active{background-color:rgb(24,185,24);color:#fff}
         .rc-desc{margin:0 1px 18px;color:#555;font-size:14px;max-width:70ch}
+        .rc-bulk-bar{display:flex;align-items:center;gap:14px;margin:0 1px 12px}
+        .rc-bulk-bar label{display:flex;align-items:center;gap:6px;font-size:14px;color:#333}
+        .rc-bulk-btn{border:none;cursor:pointer;text-decoration:none;color:#fff;background-color:#c0392b;padding:8px 14px;border-radius:8px;font-size:14px;font-family:inherit}
+        .rc-bulk-btn:disabled{background-color:#ccc;cursor:not-allowed}
+        .rc-checkbox-col{width:32px;text-align:center}
     </style>
 </head>
 <body>
@@ -99,9 +104,19 @@
 
             <p class="rc-desc"><?= $courant['desc'] ?></p>
 
+            <form method="POST" action="supprimer/sup-produits-masse.php" id="rc-bulk-form">
+                <input type="hidden" name="vue" value="<?= htmlspecialchars($vue) ?>">
+                <input type="hidden" name="page" value="<?= (int)$page ?>">
+
+                <div class="rc-bulk-bar">
+                    <label><input type="checkbox" id="rc-select-all"> Tout sélectionner (page courante)</label>
+                    <button type="submit" id="rc-bulk-btn" class="rc-bulk-btn" disabled>Supprimer la sélection</button>
+                </div>
+
             <table>
                 <thead>
                     <tr>
+                        <th class="rc-checkbox-col"></th>
                         <th>image</th>
                         <th>Produit</th>
                         <th>Prix</th>
@@ -115,7 +130,7 @@
                 <tbody>
                 <?php
                     if (empty($produits)) {
-                        echo '<tr><td colspan="9">Rien à afficher pour cette vue.</td></tr>';
+                        echo '<tr><td colspan="10">Rien à afficher pour cette vue.</td></tr>';
                     } else {
                         foreach ($produits as $produit) {
                             $sqlPvdVoiture = $pdo->prepare('SELECT id_voiture FROM pvd WHERE id_produit = ? LIMIT 1');
@@ -151,6 +166,7 @@
                             }
                 ?>
                         <tr>
+                            <td class="rc-checkbox-col"><input type="checkbox" class="rc-row-check" name="ids[]" value="<?= (int)$produit['id_produit'] ?>"></td>
                             <td><img src="../img/produit/<?= htmlspecialchars($produit['img1']) ?>"></td>
                             <td><?= htmlspecialchars($produit['libelle']) ?></td>
                             <td><span class="spanGreen"><?= (int)$produit['prix'] ?> DA</span></td>
@@ -168,6 +184,7 @@
                 ?>
                 </tbody>
             </table>
+            </form>
 
             <?php
                 $baseUrl = $_SERVER['PHP_SELF'] . '?vue=' . urlencode($vue) . '&';
@@ -201,5 +218,37 @@
             ?>
         </div>
     </div>
+
+    <script>
+        (function () {
+            var selectAll = document.getElementById('rc-select-all');
+            var bulkBtn = document.getElementById('rc-bulk-btn');
+            var form = document.getElementById('rc-bulk-form');
+            var rowChecks = Array.prototype.slice.call(document.getElementsByClassName('rc-row-check'));
+
+            function refreshButton() {
+                var n = rowChecks.filter(function (c) { return c.checked; }).length;
+                bulkBtn.disabled = n === 0;
+                bulkBtn.textContent = n === 0 ? 'Supprimer la sélection' : 'Supprimer la sélection (' + n + ')';
+                selectAll.checked = n > 0 && n === rowChecks.length;
+            }
+
+            selectAll.addEventListener('change', function () {
+                rowChecks.forEach(function (c) { c.checked = selectAll.checked; });
+                refreshButton();
+            });
+
+            rowChecks.forEach(function (c) { c.addEventListener('change', refreshButton); });
+
+            form.addEventListener('submit', function (e) {
+                var n = rowChecks.filter(function (c) { return c.checked; }).length;
+                if (n === 0 || !confirm('Supprimer ' + n + ' produit(s) sélectionné(s) ? Cette action est irréversible.')) {
+                    e.preventDefault();
+                }
+            });
+
+            refreshButton();
+        })();
+    </script>
 </body>
 </html>
