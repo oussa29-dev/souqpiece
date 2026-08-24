@@ -1,0 +1,23 @@
+-- Souqpiece - suppression de produit.id_voiture (colonne morte)
+--
+-- Ancienne conception ou une piece ne pouvait etre liee qu'a UN SEUL
+-- vehicule (relation un-a-un). Remplacee par la table pvd, qui permet
+-- une relation plusieurs-a-plusieurs (une piece compatible avec
+-- plusieurs vehicules, un vehicule avec plusieurs pieces) - c'est la
+-- table pvd qui rend un produit visible sur le site, pas cette colonne.
+-- Deja identifiee comme colonne morte dans l'audit du 17/08/2026.
+--
+-- Verifie avant suppression :
+--   - remplie sur seulement 5 556 produits sur 24 458 ; ou elle l'est,
+--     sa valeur correspond a une ligne existante dans pvd (echantillon
+--     verifie) - aucune information qui n'existe pas deja ailleurs
+--   - aucun index sur cette colonne
+--   - recherche exhaustive de tous les acces ['id_voiture'] dans le
+--     code PHP : chacun retrace soit a la table pvd (via alias explicite
+--     "as voiture" ou requete separee), soit a la table panier, soit a
+--     la table voiture elle-meme - jamais a produit.id_voiture, meme
+--     dans les 3 requetes "SELECT produit.*" existantes
+--   - formulaire d'ajout produit et pages catalogue testees en conditions
+--     reelles apres suppression : toutes fonctionnelles.
+
+ALTER TABLE produit DROP COLUMN id_voiture;
