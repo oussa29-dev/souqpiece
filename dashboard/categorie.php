@@ -144,7 +144,6 @@
                 }
             ?>
             <a href="sous-categorie.php" class="btn-site">Sous categorie</a>
-           <!-- <a href="sous-categorie2.php" class="btn-site">Sous categorie 2</a>-->
             <h2>Liste des categories</h2>
             <table class="afficher-marque">
                 <thead>
