@@ -38,33 +38,33 @@
         $vues = [
             'sans_vehicule' => [
                 'label' => 'Sans véhicule',
-                'desc'  => 'Produits avec un prix réel mais aucune ligne dans pvd : payés, en stock, mais invisibles à toute navigation par voiture.',
-                'count' => "SELECT COUNT(*) FROM produit p WHERE p.prix > 0 AND NOT EXISTS (SELECT 1 FROM pvd WHERE pvd.id_produit = p.id_produit)",
-                'list'  => "SELECT p.* FROM produit p WHERE p.prix > 0 AND NOT EXISTS (SELECT 1 FROM pvd WHERE pvd.id_produit = p.id_produit) ORDER BY p.id_produit DESC LIMIT ? OFFSET ?",
+                'desc'  => 'Produits disponibles avec un prix réel mais aucune ligne dans pvd : payés, en stock, mais invisibles à toute navigation par voiture.',
+                'count' => "SELECT COUNT(*) FROM produit p WHERE p.prix > 0 AND p.stock = 1 AND NOT EXISTS (SELECT 1 FROM pvd WHERE pvd.id_produit = p.id_produit)",
+                'list'  => "SELECT p.* FROM produit p WHERE p.prix > 0 AND p.stock = 1 AND NOT EXISTS (SELECT 1 FROM pvd WHERE pvd.id_produit = p.id_produit) ORDER BY p.id_produit DESC LIMIT ? OFFSET ?",
             ],
             'sans_categorie' => [
                 'label' => 'Sans catégorie',
-                'desc'  => 'Produits avec id_categorie = 0 : absents de toute navigation par catégorie.',
-                'count' => "SELECT COUNT(*) FROM produit WHERE id_categorie = 0",
-                'list'  => "SELECT * FROM produit WHERE id_categorie = 0 ORDER BY id_produit DESC LIMIT ? OFFSET ?",
+                'desc'  => 'Produits disponibles avec id_categorie = 0 : absents de toute navigation par catégorie.',
+                'count' => "SELECT COUNT(*) FROM produit WHERE id_categorie = 0 AND stock = 1",
+                'list'  => "SELECT * FROM produit WHERE id_categorie = 0 AND stock = 1 ORDER BY id_produit DESC LIMIT ? OFFSET ?",
             ],
             'doublons' => [
                 'label' => 'Doublons probables',
-                'desc'  => 'Même libellé, même marque, même prix. Regroupés ci-dessous - à arbitrer manuellement (fusionner, différencier, ou supprimer).',
-                'count' => "SELECT SUM(c) FROM (SELECT COUNT(*) c FROM produit GROUP BY libelle, marquepiece, prix HAVING COUNT(*) > 1) t",
-                'list'  => "SELECT p.* FROM produit p INNER JOIN (SELECT libelle, marquepiece, prix FROM produit GROUP BY libelle, marquepiece, prix HAVING COUNT(*) > 1) d ON p.libelle = d.libelle AND p.marquepiece = d.marquepiece AND p.prix = d.prix ORDER BY p.libelle, p.marquepiece, p.prix, p.id_produit LIMIT ? OFFSET ?",
+                'desc'  => 'Produits disponibles, même libellé, même marque, même prix. Regroupés ci-dessous - à arbitrer manuellement (fusionner, différencier, ou supprimer).',
+                'count' => "SELECT SUM(c) FROM (SELECT COUNT(*) c FROM produit WHERE stock = 1 GROUP BY libelle, marquepiece, prix HAVING COUNT(*) > 1) t",
+                'list'  => "SELECT p.* FROM produit p INNER JOIN (SELECT libelle, marquepiece, prix FROM produit WHERE stock = 1 GROUP BY libelle, marquepiece, prix HAVING COUNT(*) > 1) d ON p.libelle = d.libelle AND p.marquepiece = d.marquepiece AND p.prix = d.prix WHERE p.stock = 1 ORDER BY p.libelle, p.marquepiece, p.prix, p.id_produit LIMIT ? OFFSET ?",
             ],
             'prix' => [
                 'label' => 'Prix douteux',
-                'desc'  => 'Prix à 0, à 1 DA, ou sous 100 DA : valeurs manifestement provisoires.',
-                'count' => "SELECT COUNT(*) FROM produit WHERE prix = 0 OR prix = 1 OR (prix > 1 AND prix < 100)",
-                'list'  => "SELECT * FROM produit WHERE prix = 0 OR prix = 1 OR (prix > 1 AND prix < 100) ORDER BY prix ASC, id_produit DESC LIMIT ? OFFSET ?",
+                'desc'  => 'Produits disponibles avec un prix à 0, à 1 DA, ou sous 100 DA : valeurs manifestement provisoires.',
+                'count' => "SELECT COUNT(*) FROM produit WHERE (prix = 0 OR prix = 1 OR (prix > 1 AND prix < 100)) AND stock = 1",
+                'list'  => "SELECT * FROM produit WHERE (prix = 0 OR prix = 1 OR (prix > 1 AND prix < 100)) AND stock = 1 ORDER BY prix ASC, id_produit DESC LIMIT ? OFFSET ?",
             ],
             'image' => [
                 'label' => 'Sans image',
-                'desc'  => 'Aucune image principale (img1 vide) : fiche produit sans visuel côté client.',
-                'count' => "SELECT COUNT(*) FROM produit WHERE img1 IS NULL OR img1 = ''",
-                'list'  => "SELECT * FROM produit WHERE img1 IS NULL OR img1 = '' ORDER BY id_produit DESC LIMIT ? OFFSET ?",
+                'desc'  => 'Produits disponibles sans image principale (img1 vide) : fiche produit sans visuel côté client.',
+                'count' => "SELECT COUNT(*) FROM produit WHERE (img1 IS NULL OR img1 = '') AND stock = 1",
+                'list'  => "SELECT * FROM produit WHERE (img1 IS NULL OR img1 = '') AND stock = 1 ORDER BY id_produit DESC LIMIT ? OFFSET ?",
             ],
         ];
 
