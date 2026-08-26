@@ -114,9 +114,7 @@
                     <label for="produit">Marque piece</label>
                     <input type="text" name="marquepiece" placeholder="entrer la marque du produit" value="<?=$produit['marquepiece']?>">
                     <label for="prix">Prix</label>
-                    <input type="number" name="prix" placeholder="Prix" min="0" value="<?=$produit['prix']?>">
-                    <label for="">Trie</label>
-                    <input type="number" name="trie" max="6" min="0" placeholder="1--6" value="<?=$produit['trie']?>"><br>
+                    <input type="number" name="prix" placeholder="Prix" min="0" value="<?=$produit['prix']?>"><br>
                     <?php
                         $sqlRef = $pdo->prepare('SELECT * FROM reference WHERE id_produit=?');
                         $sqlRef->execute([$id]);
@@ -435,10 +433,6 @@
                                 <input type="number" name="annee_fin_existing[<?= $desc['id_voiture'] ?>]" id="annee_fin_existing_<?= $desc['id_voiture'] ?>" min="1970" max="2026" value="<?= htmlspecialchars($desc['annee_fin'] ?? '') ?>">
                             </div>
                             <div class="pvd-champ">
-                                <label for="marque_texte_existing_<?= $desc['id_voiture'] ?>">Marque de la pièce</label>
-                                <input type="text" name="marque_texte_existing[<?= $desc['id_voiture'] ?>]" id="marque_texte_existing_<?= $desc['id_voiture'] ?>" placeholder="<?= htmlspecialchars($produit['marquepiece']) ?>" value="<?= htmlspecialchars($desc['marque_texte'] ?? '') ?>">
-                            </div>
-                            <div class="pvd-champ">
                                 <label for="pays_origine_existing_<?= $desc['id_voiture'] ?>">Pays d'origine</label>
                                 <select name="pays_origine_existing[<?= $desc['id_voiture'] ?>]" id="pays_origine_existing_<?= $desc['id_voiture'] ?>">
                                     <option value="">Non renseigné</option>
@@ -465,10 +459,6 @@
                                 <input type="number" name="annee_fin[]" id="annee_fin" min="1970" max="2026">
                             </div>
                             <div class="pvd-champ">
-                                <label for="marque_texte">Marque de la pièce</label>
-                                <input type="text" name="marque_texte[]" id="marque_texte" placeholder="<?= htmlspecialchars($produit['marquepiece']) ?>">
-                            </div>
-                            <div class="pvd-champ">
                                 <label for="pays_origine">Pays d'origine</label>
                                 <select name="pays_origine[]" id="pays_origine">
                                     <option value="">Non renseigné</option>
@@ -490,8 +480,12 @@
                 <?php
 
                 if(isset($_POST['modifier'])){
-                    
-                    $trie = $_POST['trie'];
+
+                    // trie n'est plus dans le formulaire (retire volontairement -
+                    // c'est une mise en avant editoriale, pas une saisie
+                    // produit courante). Preserver la valeur existante plutot
+                    // que l'ecraser avec un champ qui n'est plus soumis.
+                    $trie = $produit['trie'];
                     $libelle = $_POST['libelle'];
                     $marquepiece = $_POST['marquepiece'];
                     $prix = $_POST['prix'];
@@ -692,14 +686,28 @@
                             $suf = $suffixe !== '' ? '_' . $suffixe : '';
                             $anneeDebut = $post['annee_debut' . $suf][$cle] ?? '';
                             $anneeFin = $post['annee_fin' . $suf][$cle] ?? '';
-                            $marqueTexte = trim($post['marque_texte' . $suf][$cle] ?? '');
                             $paysListe = $post['pays_origine' . $suf][$cle] ?? '';
                             $paysAutre = trim($post['pays_origine_autre' . $suf][$cle] ?? '');
 
                             $anneeDebut = $anneeDebut === '' ? null : (int)$anneeDebut;
                             $anneeFin = $anneeFin === '' ? null : (int)$anneeFin;
                             $pays = $paysAutre !== '' ? strtoupper($paysAutre) : ($paysListe !== '' ? $paysListe : null);
-                            $marque = $marqueTexte !== '' ? $marqueTexte : $marquepieceProduit;
+
+                            // No more per-vehicle marque field: 98.3% of
+                            // multi-vehicle products already had the same
+                            // marque_texte on every one of their pvd rows,
+                            // so asking for it again per vehicle was pure
+                            // duplication. produit.marquepiece (entered once,
+                            // next to the product name) drives the MARQUE
+                            // line in the composed description, but is
+                            // deliberately NOT mirrored into pvd.marque_texte
+                            // - that column's job is to record what was
+                            // independently written, for comparison against
+                            // marquepiece on the decision page. Nothing is
+                            // independently entered anymore, so it stays
+                            // null for new/updated rows, same as before this
+                            // field existed.
+                            $marque = $marquepieceProduit;
 
                             // notesActuelles: the form no longer has a notes
                             // field (deliberately - PLAN_PVD_DESCRIPTION.md,
@@ -711,7 +719,7 @@
                             // that was there before this form existed.
                             $description = pvd_composer_description($modeleLabel, '', $anneeDebut, $anneeFin, $marque, $pays, $notesActuelles);
 
-                            return [$anneeDebut, $anneeFin, $marqueTexte !== '' ? $marqueTexte : null, $pays, $notesActuelles, $description];
+                            return [$anneeDebut, $anneeFin, null, $pays, $notesActuelles, $description];
                         }
 
                         $modeles_existing = $_POST['modele_existing'] ?? [];
@@ -790,10 +798,8 @@
 
                 <label for="prix">Prix</label>
 
-                <input type="number" name="prix" placeholder="Prix" min="0">
-                <label for="">Trie</label>
-                <input type="number" name="trie" max="6" min="0" placeholder="1--6"><br>
-                
+                <input type="number" name="prix" placeholder="Prix" min="0"><br>
+
                 <div id="reference-container">
                     <label for="reference0">Référence 1</label>
                     <input type="text" name="references[]" placeholder="Entrer la référence 1">
@@ -1036,10 +1042,6 @@
                             <input type="number" name="annee_fin[]" id="annee_fin" min="1970" max="2026">
                         </div>
                         <div class="pvd-champ">
-                            <label for="marque_texte">Marque de la pièce</label>
-                            <input type="text" name="marque_texte[]" id="marque_texte" placeholder="laisser vide pour reprendre la marque ci-dessus">
-                        </div>
-                        <div class="pvd-champ">
                             <label for="pays_origine">Pays d'origine</label>
                             <select name="pays_origine[]" id="pays_origine">
                                 <option value="">Non renseigné</option>
@@ -1062,7 +1064,10 @@
             <?php
                 if (isset($_POST['ajouter'])) {
 
-                    $trie = $_POST['trie'];
+                    // trie n'est plus dans le formulaire (mise en avant
+                    // editoriale, pas une saisie produit courante) - un
+                    // nouveau produit n'est jamais mis en avant par defaut.
+                    $trie = 0;
                     $libelle = $_POST['libelle'];
                     $marquepiece = $_POST['marquepiece'];
                     $prix = $_POST['prix'];
@@ -1129,14 +1134,19 @@
 
                             $anneeDebut = $post['annee_debut'][$cle] ?? '';
                             $anneeFin = $post['annee_fin'][$cle] ?? '';
-                            $marqueTexte = trim($post['marque_texte'][$cle] ?? '');
                             $paysListe = $post['pays_origine'][$cle] ?? '';
                             $paysAutre = trim($post['pays_origine_autre'][$cle] ?? '');
 
                             $anneeDebut = $anneeDebut === '' ? null : (int)$anneeDebut;
                             $anneeFin = $anneeFin === '' ? null : (int)$anneeFin;
                             $pays = $paysAutre !== '' ? strtoupper($paysAutre) : ($paysListe !== '' ? $paysListe : null);
-                            $marque = $marqueTexte !== '' ? $marqueTexte : $marquepieceProduit;
+
+                            // No per-vehicle marque field (see the modifier
+                            // branch above for why) - produit.marquepiece
+                            // drives the composed description's MARQUE line,
+                            // but is not mirrored into pvd.marque_texte
+                            // (nothing independently entered to record).
+                            $marque = $marquepieceProduit;
 
                             // Brand new product being created here - there is
                             // no prior pvd row, so notes_libres has nothing to
@@ -1145,7 +1155,7 @@
                             // handler above for why that matters more there).
                             $description = pvd_composer_description($modeleLabel, '', $anneeDebut, $anneeFin, $marque, $pays, null);
 
-                            return [$anneeDebut, $anneeFin, $marqueTexte !== '' ? $marqueTexte : null, $pays, null, $description];
+                            return [$anneeDebut, $anneeFin, null, $pays, null, $description];
                         }
 
                         if (isset($_POST['modele']) && is_array($_POST['modele'])) {
@@ -1346,12 +1356,6 @@
         anneeFinInput.min = '1970';
         anneeFinInput.max = '2026';
         champ('Année fin (optionnel)', anneeFinInput);
-
-        const marqueTexteInput = document.createElement('input');
-        marqueTexteInput.type = 'text';
-        marqueTexteInput.name = 'marque_texte[]';
-        marqueTexteInput.placeholder = 'laisser vide pour reprendre la marque ci-dessus';
-        champ('Marque de la pièce', marqueTexteInput);
 
         const paysSelect = document.createElement('select');
         paysSelect.name = 'pays_origine[]';
