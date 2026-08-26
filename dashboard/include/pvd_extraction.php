@@ -108,3 +108,41 @@ function pvd_a_un_motif_connu(string $description): bool
         || stripos($description, 'MARQUE') !== false
         || stripos($description, 'MADE IN') !== false;
 }
+
+// Canonical country list for the admin form's dropdown - the distinct
+// values pvd_dictionnaire_pays() can produce, so the form never lets
+// someone type a country that couche 1 wouldn't have recognized.
+function pvd_liste_pays_connus(): array
+{
+    $pays = array_unique(array_values(pvd_dictionnaire_pays()));
+    sort($pays);
+    return $pays;
+}
+
+// Builds a pvd.description string from structured fields (PLAN_PVD_DESCRIPTION.md
+// §3/§6) so existing display code (produit.php reads pvd.description as-is)
+// keeps working unchanged while the new form captures clean, structured
+// data instead of hand-typed free text. Once §6 (generate at display time)
+// ships, this same template moves from write-time to read-time - the
+// composed text does not change shape.
+function pvd_composer_description(string $libelleProduit, string $modeleVoiture, ?int $anneeDebut, ?int $anneeFin, string $marquepiece, ?string $paysOrigine, ?string $notesLibres): string
+{
+    $lignes = [trim($libelleProduit . ' ' . $modeleVoiture)];
+
+    if ($anneeDebut !== null) {
+        $lignes[] = $anneeFin !== null && $anneeFin !== $anneeDebut
+            ? "ANNEE {$anneeDebut}-{$anneeFin}"
+            : "ANNEE {$anneeDebut} PLUS";
+    }
+    if (trim($marquepiece) !== '') {
+        $lignes[] = 'MARQUE ' . strtoupper(trim($marquepiece));
+    }
+    if ($paysOrigine !== null && $paysOrigine !== '') {
+        $lignes[] = 'MADE IN ' . strtoupper($paysOrigine);
+    }
+    if ($notesLibres !== null && trim($notesLibres) !== '') {
+        $lignes[] = trim($notesLibres);
+    }
+
+    return implode(" // \n", $lignes);
+}

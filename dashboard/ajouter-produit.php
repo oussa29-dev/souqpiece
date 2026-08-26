@@ -8,7 +8,7 @@
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=<?= filemtime(__DIR__ . '/css/style.css') ?>">
 
     <title>Ajouter produit</title>
 
@@ -38,9 +38,11 @@
         }
 
         require_once('database.php');
+        require_once('include/pvd_extraction.php');
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
         include('include/menu.php');
+        $paysConnus = pvd_liste_pays_connus();
         
 
         if(isset($_GET['id'])){
@@ -59,12 +61,17 @@
             ');*/
             // Récupérer les voitures associées avec leurs descriptions
             $sqlVoituresAvecDesc = $pdo->prepare('
-                SELECT 
-                    voiture.id_voiture, 
-                    voiture.modele, 
-                    marque.id_marque, 
-                    marque.libelle AS marque_libelle, 
-                    pvd.description 
+                SELECT
+                    voiture.id_voiture,
+                    voiture.modele,
+                    marque.id_marque,
+                    marque.libelle AS marque_libelle,
+                    pvd.description,
+                    pvd.annee_debut,
+                    pvd.annee_fin,
+                    pvd.marque_texte,
+                    pvd.pays_origine,
+                    pvd.notes_libres
                 FROM voiture
                 INNER JOIN marque ON voiture.id_marque = marque.id_marque
                 INNER JOIN pvd ON voiture.id_voiture = pvd.id_voiture
@@ -417,18 +424,63 @@
                     <br>
     
                     <?php foreach ($voituresAssociees as $desc): ?>
-                        <div class="row">
-                            <label for="description">Description pour Voiture :</label>
-                            <textarea name="description[<?= $desc['id_voiture']; ?>]" id="description-produit" placeholder="Entrer la description du produit"><?= htmlspecialchars($desc['description']) ?></textarea>
+                        <div class="row pvd-structure">
+                            <span class="pvd-titre">Détails pour <?= htmlspecialchars($desc['modele']) ?></span>
+                            <div class="pvd-champ">
+                                <label for="annee_debut_existing_<?= $desc['id_voiture'] ?>">Année début</label>
+                                <input type="number" name="annee_debut_existing[<?= $desc['id_voiture'] ?>]" id="annee_debut_existing_<?= $desc['id_voiture'] ?>" min="1970" max="2026" value="<?= htmlspecialchars($desc['annee_debut'] ?? '') ?>">
+                            </div>
+                            <div class="pvd-champ">
+                                <label for="annee_fin_existing_<?= $desc['id_voiture'] ?>">Année fin (optionnel)</label>
+                                <input type="number" name="annee_fin_existing[<?= $desc['id_voiture'] ?>]" id="annee_fin_existing_<?= $desc['id_voiture'] ?>" min="1970" max="2026" value="<?= htmlspecialchars($desc['annee_fin'] ?? '') ?>">
+                            </div>
+                            <div class="pvd-champ">
+                                <label for="marque_texte_existing_<?= $desc['id_voiture'] ?>">Marque de la pièce</label>
+                                <input type="text" name="marque_texte_existing[<?= $desc['id_voiture'] ?>]" id="marque_texte_existing_<?= $desc['id_voiture'] ?>" placeholder="<?= htmlspecialchars($produit['marquepiece']) ?>" value="<?= htmlspecialchars($desc['marque_texte'] ?? '') ?>">
+                            </div>
+                            <div class="pvd-champ">
+                                <label for="pays_origine_existing_<?= $desc['id_voiture'] ?>">Pays d'origine</label>
+                                <select name="pays_origine_existing[<?= $desc['id_voiture'] ?>]" id="pays_origine_existing_<?= $desc['id_voiture'] ?>">
+                                    <option value="">Non renseigné</option>
+                                    <?php foreach ($paysConnus as $p): ?>
+                                        <option value="<?= htmlspecialchars($p) ?>" <?= ($desc['pays_origine'] ?? '') === $p ? 'selected' : '' ?>><?= htmlspecialchars($p) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="pvd-champ">
+                                <label for="pays_origine_autre_existing_<?= $desc['id_voiture'] ?>">Autre pays (si absent de la liste)</label>
+                                <input type="text" name="pays_origine_autre_existing[<?= $desc['id_voiture'] ?>]" id="pays_origine_autre_existing_<?= $desc['id_voiture'] ?>" placeholder="Autre pays">
+                            </div>
                         </div>
                     <?php endforeach; ?>
                     <div id="descDiv">
-                        <div class="row">
-        
-                            <label for="description">Description du produit</label>
-        
-                            <textarea name="descNew[]" id="description-produit" placeholder="Entrer la description du produit"></textarea>
-        
+                        <div class="row pvd-structure">
+                            <span class="pvd-titre">Détails pour Voiture 1 (celle ajoutée ci-dessus)</span>
+                            <div class="pvd-champ">
+                                <label for="annee_debut">Année début</label>
+                                <input type="number" name="annee_debut[]" id="annee_debut" min="1970" max="2026">
+                            </div>
+                            <div class="pvd-champ">
+                                <label for="annee_fin">Année fin (optionnel)</label>
+                                <input type="number" name="annee_fin[]" id="annee_fin" min="1970" max="2026">
+                            </div>
+                            <div class="pvd-champ">
+                                <label for="marque_texte">Marque de la pièce</label>
+                                <input type="text" name="marque_texte[]" id="marque_texte" placeholder="<?= htmlspecialchars($produit['marquepiece']) ?>">
+                            </div>
+                            <div class="pvd-champ">
+                                <label for="pays_origine">Pays d'origine</label>
+                                <select name="pays_origine[]" id="pays_origine">
+                                    <option value="">Non renseigné</option>
+                                    <?php foreach ($paysConnus as $p): ?>
+                                        <option value="<?= htmlspecialchars($p) ?>"><?= htmlspecialchars($p) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="pvd-champ">
+                                <label for="pays_origine_autre">Autre pays (si absent de la liste)</label>
+                                <input type="text" name="pays_origine_autre[]" id="pays_origine_autre" placeholder="Autre pays">
+                            </div>
                         </div>
                     </div>
     
@@ -616,33 +668,80 @@
                             }
                         }
                         
-                        $descriptions = $_POST['description'] ?? []; 
-                        $desc_new = $_POST['descNew'] ?? [];        
-                        $modeles_existing = $_POST['modele_existing'] ?? []; 
+                        // Builds the 5 structured pvd fields (plus a composed
+                        // description, kept in sync for existing display code
+                        // - see PLAN_PVD_DESCRIPTION.md §3) from one row of
+                        // POSTed form fields. "Autre pays" wins over the
+                        // dropdown when filled, so an admin is never stuck if
+                        // the country isn't in the known list yet. Looks the
+                        // vehicle's own modele up by id rather than trusting
+                        // a pre-loaded array, since the "new vehicle" row's
+                        // id_voiture is only known once the form is submitted.
+                        function pvd_lire_champs_structures(PDO $pdo, array $post, string $suffixe, $cle, int $idVoiture, string $libelleProduit, string $marquepieceProduit, ?string $notesActuelles): array
+                        {
+                            $modele = $pdo->prepare('SELECT modele FROM voiture WHERE id_voiture = ?');
+                            $modele->execute([$idVoiture]);
+                            $modeleLabel = trim($libelleProduit . ' ' . ($modele->fetchColumn() ?: ''));
+
+                            // Suffix is only appended when non-empty: "existing"
+                            // rows are keyed annee_debut_existing[...], but
+                            // "new" rows use the plain annee_debut[...] name -
+                            // shared with the add-product form's fields, since
+                            // both forms are extended by the same addVoitureField()
+                            // JS function and must agree on field names.
+                            $suf = $suffixe !== '' ? '_' . $suffixe : '';
+                            $anneeDebut = $post['annee_debut' . $suf][$cle] ?? '';
+                            $anneeFin = $post['annee_fin' . $suf][$cle] ?? '';
+                            $marqueTexte = trim($post['marque_texte' . $suf][$cle] ?? '');
+                            $paysListe = $post['pays_origine' . $suf][$cle] ?? '';
+                            $paysAutre = trim($post['pays_origine_autre' . $suf][$cle] ?? '');
+
+                            $anneeDebut = $anneeDebut === '' ? null : (int)$anneeDebut;
+                            $anneeFin = $anneeFin === '' ? null : (int)$anneeFin;
+                            $pays = $paysAutre !== '' ? strtoupper($paysAutre) : ($paysListe !== '' ? $paysListe : null);
+                            $marque = $marqueTexte !== '' ? $marqueTexte : $marquepieceProduit;
+
+                            // notesActuelles: the form no longer has a notes
+                            // field (deliberately - PLAN_PVD_DESCRIPTION.md,
+                            // "don't invite extra free text"), so there is
+                            // nothing to read from $post here. Whatever the
+                            // row already had in notes_libres is passed in by
+                            // the caller and written back unchanged - saving
+                            // an edit must never silently blank out a note
+                            // that was there before this form existed.
+                            $description = pvd_composer_description($modeleLabel, '', $anneeDebut, $anneeFin, $marque, $pays, $notesActuelles);
+
+                            return [$anneeDebut, $anneeFin, $marqueTexte !== '' ? $marqueTexte : null, $pays, $notesActuelles, $description];
+                        }
+
+                        $modeles_existing = $_POST['modele_existing'] ?? [];
                         $modeles_new = $_POST['modele'] ?? [];
-                        
+
                         if (!empty($modeles_existing)) {
                             foreach ($modeles_existing as $id_voiture => $new_id_voiture) {
-                                $description = $descriptions[$id_voiture] ?? '';
                                 if (empty($new_id_voiture)) {
                                      $pdo->prepare("DELETE FROM pvd WHERE id_produit = ? AND id_voiture=?")->execute([$id,$id_voiture]);
                                 }else{
-                                $updateMod = $pdo->prepare("UPDATE pvd SET id_voiture = ?, description = ? WHERE id_produit = ? AND id_voiture = ?");
-                                $updateMod->execute([$new_id_voiture,$description,$id,$id_voiture]);        
+                                $sqlNotesActuelles = $pdo->prepare('SELECT notes_libres FROM pvd WHERE id_produit = ? AND id_voiture = ?');
+                                $sqlNotesActuelles->execute([$id, $id_voiture]);
+                                $notesActuelles = $sqlNotesActuelles->fetchColumn() ?: null;
+
+                                [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, 'existing', $id_voiture, (int)$new_id_voiture, $libelle, $marquepiece, $notesActuelles);
+                                $updateMod = $pdo->prepare("UPDATE pvd SET id_voiture = ?, description = ?, annee_debut = ?, annee_fin = ?, marque_texte = ?, pays_origine = ?, notes_libres = ? WHERE id_produit = ? AND id_voiture = ?");
+                                $updateMod->execute([$new_id_voiture,$description,$anneeDebut,$anneeFin,$marqueTexte,$pays,$notes,$id,$id_voiture]);
                                 }
                             }
-                        }               
+                        }
                         if (!empty($modeles_new)) {
                             foreach ($modeles_new as $index => $newMod) {
-                                $description = trim($desc_new[$index]);
-                                if (!empty($newMod) && !empty($description)) {
-                                    $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description) VALUES (?, ?, ?)';
+                                if (!empty($newMod)) {
+                                    // New row, nothing to preserve - null is correct here.
+                                    [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, '', $index, (int)$newMod, $libelle, $marquepiece, null);
+                                    $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,annee_debut,annee_fin,marque_texte,pays_origine,notes_libres) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
                                     $insertMod = $pdo->prepare($sqlVoi);
-                                    $insertMod->execute([$id,$newMod,$description]);
+                                    $insertMod->execute([$id,$newMod,$description,$anneeDebut,$anneeFin,$marqueTexte,$pays,$notes]);
                                 }
                             }
-                        }else{
-                            echo ' veuillez saisir la description et choisir la voiture ';
                         }
                        
                         if($updated){
@@ -926,15 +1025,36 @@
 
                 <br>
                 <div id="descDiv">
-                    <div class="row">
-    
-                        <label for="description">Description du produit</label>
-    
-                        <textarea name="description[]" id="description-produit" placeholder="Entrer la description du produit"></textarea>
-    
+                    <div class="row pvd-structure">
+                        <span class="pvd-titre">Détails pour Voiture 1 (celle sélectionnée ci-dessus)</span>
+                        <div class="pvd-champ">
+                            <label for="annee_debut">Année début</label>
+                            <input type="number" name="annee_debut[]" id="annee_debut" min="1970" max="2026">
+                        </div>
+                        <div class="pvd-champ">
+                            <label for="annee_fin">Année fin (optionnel)</label>
+                            <input type="number" name="annee_fin[]" id="annee_fin" min="1970" max="2026">
+                        </div>
+                        <div class="pvd-champ">
+                            <label for="marque_texte">Marque de la pièce</label>
+                            <input type="text" name="marque_texte[]" id="marque_texte" placeholder="laisser vide pour reprendre la marque ci-dessus">
+                        </div>
+                        <div class="pvd-champ">
+                            <label for="pays_origine">Pays d'origine</label>
+                            <select name="pays_origine[]" id="pays_origine">
+                                <option value="">Non renseigné</option>
+                                <?php foreach ($paysConnus as $p): ?>
+                                    <option value="<?= htmlspecialchars($p) ?>"><?= htmlspecialchars($p) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="pvd-champ">
+                            <label for="pays_origine_autre">Autre pays (si absent de la liste)</label>
+                            <input type="text" name="pays_origine_autre[]" id="pays_origine_autre" placeholder="Autre pays">
+                        </div>
                     </div>
                 </div>
-                
+
                 <input type="submit" value="ajouter" name="ajouter">
 
             </form>
@@ -996,21 +1116,55 @@
                         $sqlProduit->execute($params);
                         $id_produit = $pdo->lastInsertId();
                         
-                        if (isset($_POST['modele']) && is_array($_POST['modele']) && isset($_POST['description']) && is_array($_POST['description'])) {
-                            foreach ($_POST['modele'] as $index => $modele) {
-                                $description = $_POST['description'][$index];
-                                $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description) VALUES (?, ?, ?)';
-                                $stmtVoi = $pdo->prepare($sqlVoi);
-                                $stmtVoi->execute([$id_produit,$modele,$description]);
+                        // Same field-composition logic as the edit form - see
+                        // PLAN_PVD_DESCRIPTION.md §3. Declared here rather than
+                        // shared because only one of the two top-level
+                        // branches (edit vs add) of this file ever runs per
+                        // request.
+                        function pvd_lire_champs_structures(PDO $pdo, array $post, $cle, int $idVoiture, string $libelleProduit, string $marquepieceProduit): array
+                        {
+                            $modele = $pdo->prepare('SELECT modele FROM voiture WHERE id_voiture = ?');
+                            $modele->execute([$idVoiture]);
+                            $modeleLabel = trim($libelleProduit . ' ' . ($modele->fetchColumn() ?: ''));
 
+                            $anneeDebut = $post['annee_debut'][$cle] ?? '';
+                            $anneeFin = $post['annee_fin'][$cle] ?? '';
+                            $marqueTexte = trim($post['marque_texte'][$cle] ?? '');
+                            $paysListe = $post['pays_origine'][$cle] ?? '';
+                            $paysAutre = trim($post['pays_origine_autre'][$cle] ?? '');
+
+                            $anneeDebut = $anneeDebut === '' ? null : (int)$anneeDebut;
+                            $anneeFin = $anneeFin === '' ? null : (int)$anneeFin;
+                            $pays = $paysAutre !== '' ? strtoupper($paysAutre) : ($paysListe !== '' ? $paysListe : null);
+                            $marque = $marqueTexte !== '' ? $marqueTexte : $marquepieceProduit;
+
+                            // Brand new product being created here - there is
+                            // no prior pvd row, so notes_libres has nothing to
+                            // preserve and is always null (the form has no
+                            // notes field by design - see the "existing" rows
+                            // handler above for why that matters more there).
+                            $description = pvd_composer_description($modeleLabel, '', $anneeDebut, $anneeFin, $marque, $pays, null);
+
+                            return [$anneeDebut, $anneeFin, $marqueTexte !== '' ? $marqueTexte : null, $pays, null, $description];
+                        }
+
+                        if (isset($_POST['modele']) && is_array($_POST['modele'])) {
+                            foreach ($_POST['modele'] as $index => $modele) {
+                                if (empty($modele)) {
+                                    continue;
+                                }
+                                [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, $index, (int)$modele, $libelle, $marquepiece);
+                                $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,annee_debut,annee_fin,marque_texte,pays_origine,notes_libres) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+                                $stmtVoi = $pdo->prepare($sqlVoi);
+                                $stmtVoi->execute([$id_produit,$modele,$description,$anneeDebut,$anneeFin,$marqueTexte,$pays,$notes]);
                             }
                         //    header('Location: produit.php');
-    
+
                         } else {
-    
-                            echo 'Veuillez saisir la description svp';
-    
-                        }                        
+
+                            echo 'Veuillez choisir au moins une voiture';
+
+                        }
                         
                         if (isset($_POST['references']) && is_array($_POST['references'])) {
                             foreach ($_POST['references'] as $reference) {
@@ -1150,23 +1304,77 @@
         // Ajoute le conteneur div au conteneur principal
         container.appendChild(voitureDiv);
 
-        // === Ajouter la description au-dessus ===
+        // === Ajoute les champs structures (annee/marque/pays/notes) pour
+        // cette voiture, au lieu d'une seule zone de texte libre - voir
+        // PLAN_PVD_DESCRIPTION.md §3. Memes noms de champs (tableaux []) que
+        // le premier bloc statique de #descDiv, dans les deux formulaires
+        // (ajout et modification), puisque addVoitureField() est partagee
+        // entre les deux.
         const descDiv = document.getElementById('descDiv');
-        const descriptionDiv = document.createElement('div');
-        descriptionDiv.classList.add('row');
+        const structureDiv = document.createElement('div');
+        structureDiv.classList.add('row', 'pvd-structure');
 
-        const descriptionLabel = document.createElement('label');
-        descriptionLabel.textContent = `Description pour Voiture ${voitureCount}`;
-        descriptionDiv.appendChild(descriptionLabel);
+        const structureTitre = document.createElement('span');
+        structureTitre.classList.add('pvd-titre');
+        structureTitre.textContent = `Détails pour Voiture ${voitureCount}`;
+        structureDiv.appendChild(structureTitre);
 
-        const descriptionTextarea = document.createElement('textarea');
-        descriptionTextarea.id = 'description-produit';
-        descriptionTextarea.name = 'description[]';
-        descriptionTextarea.placeholder = 'Entrer la description du produit';
-        descriptionDiv.appendChild(descriptionTextarea);
+        function champ(labelText, inputEl, pleineLargeur) {
+            const wrapper = document.createElement('div');
+            wrapper.classList.add('pvd-champ');
+            if (pleineLargeur) wrapper.classList.add('pvd-notes');
+            const label = document.createElement('label');
+            label.textContent = labelText;
+            const inputId = 'pvd-' + inputEl.getAttribute('name').replace(/[^a-z]/gi, '') + voitureCount;
+            label.setAttribute('for', inputId);
+            inputEl.id = inputId;
+            wrapper.appendChild(label);
+            wrapper.appendChild(inputEl);
+            structureDiv.appendChild(wrapper);
+        }
 
-        // Ajoute la description au début du conteneur principal
-        descDiv.appendChild(descriptionDiv);
+        const anneeDebutInput = document.createElement('input');
+        anneeDebutInput.type = 'number';
+        anneeDebutInput.name = 'annee_debut[]';
+        anneeDebutInput.min = '1970';
+        anneeDebutInput.max = '2026';
+        champ('Année début', anneeDebutInput);
+
+        const anneeFinInput = document.createElement('input');
+        anneeFinInput.type = 'number';
+        anneeFinInput.name = 'annee_fin[]';
+        anneeFinInput.min = '1970';
+        anneeFinInput.max = '2026';
+        champ('Année fin (optionnel)', anneeFinInput);
+
+        const marqueTexteInput = document.createElement('input');
+        marqueTexteInput.type = 'text';
+        marqueTexteInput.name = 'marque_texte[]';
+        marqueTexteInput.placeholder = 'laisser vide pour reprendre la marque ci-dessus';
+        champ('Marque de la pièce', marqueTexteInput);
+
+        const paysSelect = document.createElement('select');
+        paysSelect.name = 'pays_origine[]';
+        const paysDefaut = document.createElement('option');
+        paysDefaut.value = '';
+        paysDefaut.textContent = 'Non renseigné';
+        paysSelect.appendChild(paysDefaut);
+        const paysConnusJs = <?php echo json_encode($paysConnus); ?>;
+        paysConnusJs.forEach(function (p) {
+            const option = document.createElement('option');
+            option.value = p;
+            option.textContent = p;
+            paysSelect.appendChild(option);
+        });
+        champ("Pays d'origine", paysSelect);
+
+        const paysAutreInput = document.createElement('input');
+        paysAutreInput.type = 'text';
+        paysAutreInput.name = 'pays_origine_autre[]';
+        paysAutreInput.placeholder = 'Autre pays';
+        champ('Autre pays (si absent de la liste)', paysAutreInput);
+
+        descDiv.appendChild(structureDiv);
     }
 </script>
 
