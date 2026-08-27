@@ -70,7 +70,6 @@
                     pvd.annee_debut,
                     pvd.annee_fin,
                     pvd.marque_texte,
-                    pvd.pays_origine,
                     pvd.notes_libres
                 FROM voiture
                 INNER JOIN marque ON voiture.id_marque = marque.id_marque
@@ -80,10 +79,72 @@
             ');
             $sqlVoituresAvecDesc->execute([$id]);
             $voituresAssociees = $sqlVoituresAvecDesc->fetchAll(PDO::FETCH_ASSOC);
-        
+
          /*   $sqlDesc = $pdo->prepare('SELECT * FROM pvd WHERE id_produit=? ORDER BY id_pvd');
             $sqlDesc->execute([$id]);
             $descDispo = $sqlDesc->fetchAll();*/
+
+            // Validation faite avant le rendu du formulaire (pas seulement au
+            // moment de l'ecriture) pour deux raisons : afficher les erreurs
+            // en haut de page, et reafficher ce que l'admin vient de taper -
+            // pas les anciennes valeurs en base - si la soumission est
+            // rejetee. $erreurs vide = rien a bloquer ; le bloc de traitement
+            // plus bas ne touche la base que si $erreurs reste vide.
+            $erreurs = [];
+            $genericCoche = empty($voituresAssociees);
+            if (isset($_POST['modifier'])) {
+                $produit['libelle'] = $_POST['libelle'] ?? $produit['libelle'];
+                $produit['marquepiece'] = $_POST['marquepiece'] ?? $produit['marquepiece'];
+                $produit['prix'] = $_POST['prix'] ?? $produit['prix'];
+                $produit['id_categorie'] = $_POST['categorie'] ?? $produit['id_categorie'];
+                $produit['id_sous_categorie'] = $_POST['sous_categorie'] ?? $produit['id_sous_categorie'];
+
+                if (trim($_POST['libelle'] ?? '') === '') {
+                    $erreurs[] = 'Le libellé est obligatoire.';
+                }
+                if (trim((string)($_POST['prix'] ?? '')) === '') {
+                    $erreurs[] = 'Le prix est obligatoire.';
+                }
+                if (trim($_POST['marquepiece'] ?? '') === '') {
+                    $erreurs[] = 'La marque de la pièce est obligatoire.';
+                }
+                if (($_POST['categorie'] ?? 'categorie') === 'categorie' || trim($_POST['categorie'] ?? '') === '') {
+                    $erreurs[] = 'La catégorie est obligatoire.';
+                }
+
+                $refsExistantes = array_filter($_POST['ref_existing'] ?? [], fn($v) => trim($v) !== '');
+                $refsNouvelles = array_filter($_POST['references'] ?? [], fn($v) => trim($v) !== '');
+                if (empty($refsExistantes) && empty($refsNouvelles)) {
+                    $erreurs[] = 'Au moins une référence est obligatoire.';
+                }
+
+                $paysAutrePost = trim($_POST['pays_origine_produit_autre'] ?? '');
+                $paysPost = $paysAutrePost !== '' ? $paysAutrePost : ($_POST['pays_origine_produit'] ?? '');
+                if (trim($paysPost) === '') {
+                    $erreurs[] = "Le pays d'origine est obligatoire.";
+                }
+
+                $genericCoche = isset($_POST['produit_generique']);
+                $modelesExistants = array_filter($_POST['modele_existing'] ?? [], fn($v) => !empty($v));
+                $modelesNouveaux = array_filter($_POST['modele'] ?? [], fn($v) => !empty($v));
+                if (!$genericCoche && empty($modelesExistants) && empty($modelesNouveaux)) {
+                    $erreurs[] = 'Sélectionnez au moins un véhicule, ou cochez "Produit générique".';
+                }
+                foreach (array_keys($modelesExistants) as $idVoitureCle) {
+                    if (trim($_POST['annee_debut_existing'][$idVoitureCle] ?? '') === '') {
+                        $erreurs[] = "L'année de début est obligatoire pour chaque véhicule sélectionné.";
+                        break;
+                    }
+                }
+                foreach (array_keys($modelesNouveaux) as $idx) {
+                    if (trim($_POST['annee_debut'][$idx] ?? '') === '') {
+                        $erreurs[] = "L'année de début est obligatoire pour chaque véhicule sélectionné.";
+                        break;
+                    }
+                }
+            }
+
+            $paysActuel = $_POST['pays_origine_produit'] ?? ($produit['pays_origine'] ?? null);
             
             // Récupérer toutes les marques disponibles
             $sqlMarques = $pdo->query('SELECT * FROM marque');
@@ -107,29 +168,43 @@
     
                 <h3>Modifier un produit</h3>
     
+                <?php if (!empty($erreurs)): ?>
+                    <div class="erreur" style="background:#fbeceb;border:1px solid #b3261e;color:#b3261e;padding:10px 14px;border-radius:6px;margin:0 0 14px;">
+                        <ul style="margin:0;padding-inline-start:1.2em;">
+                            <?php foreach ($erreurs as $e): ?><li><?= htmlspecialchars($e) ?></li><?php endforeach; ?>
+                        </ul>
+                    </div>
+                <?php endif; ?>
                 <form method="POST" id="form-produit" enctype="multipart/form-data" >
-    
+
                     <label for="produit">Produit</label>
-                    <input type="text" name="libelle" placeholder="entrer le produit" value="<?=$produit['libelle']?>">
+                    <input type="text" name="libelle" placeholder="entrer le produit" value="<?=$produit['libelle']?>" required>
                     <label for="produit">Marque piece</label>
-                    <input type="text" name="marquepiece" placeholder="entrer la marque du produit" value="<?=$produit['marquepiece']?>">
+                    <input type="text" name="marquepiece" placeholder="entrer la marque du produit" value="<?=$produit['marquepiece']?>" required>
                     <label for="prix">Prix</label>
-                    <input type="number" name="prix" placeholder="Prix" min="0" value="<?=$produit['prix']?>"><br>
+                    <input type="number" name="prix" placeholder="Prix" min="0" value="<?=$produit['prix']?>" required>
+                    <label for="pays_origine_produit">Pays d'origine</label>
+                    <select name="pays_origine_produit" id="pays_origine_produit">
+                        <option value="">Non renseigné</option>
+                        <?php foreach ($paysConnus as $p): ?>
+                            <option value="<?= htmlspecialchars($p) ?>" <?= $paysActuel === $p ? 'selected' : '' ?>><?= htmlspecialchars($p) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <input type="text" name="pays_origine_produit_autre" placeholder="Autre pays (si absent de la liste)"><br>
                     <?php
                         $sqlRef = $pdo->prepare('SELECT * FROM reference WHERE id_produit=?');
                         $sqlRef->execute([$id]);
                         $refs = $sqlRef->fetchAll();
                         foreach($refs as $ref){
                     ?>
-                    <input type="text" name="ref_existing[<?= $ref['id_reference'] ?>]" placeholder="référence" value="<?=$ref['reference']?>">
-                    <?php } ?>
-                    
-                    <div id="reference-container">
-                    <!--    <label for="reference0">Référence 1</label>
-                        <input type="text" name="references[]" placeholder="Entrer la référence 1">-->
+                    <div class="reference-row">
+                        <input type="text" name="ref_existing[<?= $ref['id_reference'] ?>]" placeholder="référence" value="<?=$ref['reference']?>">
                     </div>
-                    <button type="button" onclick="addReferenceField()" id="but-ref">Ajouter une référence</button><br>
-                    
+                    <?php } ?>
+
+                    <div id="reference-container"></div>
+                    <button type="button" onclick="addReferenceField()" id="but-ref">Ajouter une référence</button>
+
                     <?php foreach ($voituresAssociees as $voiture): ?>
                         <div class="voiture-group">
                             <label>Marque :</label>
@@ -158,9 +233,15 @@
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+
+                            <label for="annee_debut_existing_<?= $voiture['id_voiture'] ?>">Année début :</label>
+                            <input type="number" name="annee_debut_existing[<?= $voiture['id_voiture'] ?>]" id="annee_debut_existing_<?= $voiture['id_voiture'] ?>" min="1970" max="2026" value="<?= htmlspecialchars($voiture['annee_debut'] ?? '') ?>">
+
+                            <label for="annee_fin_existing_<?= $voiture['id_voiture'] ?>">Année fin :</label>
+                            <input type="number" name="annee_fin_existing[<?= $voiture['id_voiture'] ?>]" id="annee_fin_existing_<?= $voiture['id_voiture'] ?>" min="1970" max="2026" value="<?= htmlspecialchars($voiture['annee_fin'] ?? '') ?>">
                         </div>
                     <?php endforeach; ?>
-                    
+
                     <div id="voiture-container">
                         <div class="voiture-group">
                             <label for="voiture">Voiture 1</label>
@@ -188,8 +269,14 @@
                             <select name="modele[]" id="modeleSelect">
                                     <option value="modele">Sélectionner un modèle</option>
                             </select>
+
+                            <label for="annee_debut">Année début :</label>
+                            <input type="number" name="annee_debut[]" id="annee_debut" min="1970" max="2026">
+
+                            <label for="annee_fin">Année fin :</label>
+                            <input type="number" name="annee_fin[]" id="annee_fin" min="1970" max="2026">
                             <script>
-        
+
                          document.getElementById('marqueSelect').addEventListener('change', function() {
         
                             var marqueId = this.value; // Récupère l'ID de la marque sélectionnée
@@ -246,7 +333,8 @@
                         </div>
                     </div>
                     <button type="button" onclick="addVoitureField()" id="but-ref">Ajouter une voiture</button><br>
-    
+                    <label><input type="checkbox" name="produit_generique" id="produit_generique" <?= $genericCoche ? 'checked' : '' ?>> Produit générique, non lié à un véhicule spécifique</label><br>
+
                     <script>
                         document.querySelectorAll('[id^="marqueSelect_"]').forEach(function(marqueSelect) {
                         marqueSelect.addEventListener('change', function() {
@@ -279,32 +367,32 @@
                     });
                     
                 </script>
-                    <select name="categorie" id="categorieSelect">
-    
-                        <option value="categorie">categorie</option>
-    
+                    <select name="categorie" id="categorieSelect" required>
+
+                        <option value="" <?= empty($produit['id_categorie']) ? 'selected' : '' ?>>Sélectionner une catégorie</option>
+
                         <?php
-    
+
                             $sqlCategorie = 'SELECT * FROM categorie';
-    
+
                             $queryCate = $pdo->query($sqlCategorie);
-    
+
                             $cateLibs = $queryCate->fetchAll();
-    
+
                             foreach($cateLibs as $cateLib){
-    
+
                                 if($cateLib['id_categorie'] == $produit['id_categorie']){ ?>
-    
-                                    <option value="<?= $cateLib['id_categorie'] ?>" selected><?= $cateLib['libelle'] ?></option>        
-    
+
+                                    <option value="<?= $cateLib['id_categorie'] ?>" selected><?= $cateLib['libelle'] ?></option>
+
                         <?php }else{ ?>
-    
+
                         <option value="<?= $cateLib['id_categorie'] ?>"><?= $cateLib['libelle'] ?></option>
-    
-                       <?php }   
-    
+
+                       <?php }
+
                             } ?>
-    
+
                     </select>
     
                     <select name="sous_categorie" id="sousSelect">
@@ -420,66 +508,13 @@
                     <label for="image_produit3">image 10</label>
                     <input type="file" name="img_produit10">
                     <br>
-    
-                    <?php foreach ($voituresAssociees as $desc): ?>
-                        <div class="row pvd-structure">
-                            <span class="pvd-titre">Détails pour <?= htmlspecialchars($desc['modele']) ?></span>
-                            <div class="pvd-champ">
-                                <label for="annee_debut_existing_<?= $desc['id_voiture'] ?>">Année début</label>
-                                <input type="number" name="annee_debut_existing[<?= $desc['id_voiture'] ?>]" id="annee_debut_existing_<?= $desc['id_voiture'] ?>" min="1970" max="2026" value="<?= htmlspecialchars($desc['annee_debut'] ?? '') ?>">
-                            </div>
-                            <div class="pvd-champ">
-                                <label for="annee_fin_existing_<?= $desc['id_voiture'] ?>">Année fin (optionnel)</label>
-                                <input type="number" name="annee_fin_existing[<?= $desc['id_voiture'] ?>]" id="annee_fin_existing_<?= $desc['id_voiture'] ?>" min="1970" max="2026" value="<?= htmlspecialchars($desc['annee_fin'] ?? '') ?>">
-                            </div>
-                            <div class="pvd-champ">
-                                <label for="pays_origine_existing_<?= $desc['id_voiture'] ?>">Pays d'origine</label>
-                                <select name="pays_origine_existing[<?= $desc['id_voiture'] ?>]" id="pays_origine_existing_<?= $desc['id_voiture'] ?>">
-                                    <option value="">Non renseigné</option>
-                                    <?php foreach ($paysConnus as $p): ?>
-                                        <option value="<?= htmlspecialchars($p) ?>" <?= ($desc['pays_origine'] ?? '') === $p ? 'selected' : '' ?>><?= htmlspecialchars($p) ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="pvd-champ">
-                                <label for="pays_origine_autre_existing_<?= $desc['id_voiture'] ?>">Autre pays (si absent de la liste)</label>
-                                <input type="text" name="pays_origine_autre_existing[<?= $desc['id_voiture'] ?>]" id="pays_origine_autre_existing_<?= $desc['id_voiture'] ?>" placeholder="Autre pays">
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                    <div id="descDiv">
-                        <div class="row pvd-structure">
-                            <span class="pvd-titre">Détails pour Voiture 1 (celle ajoutée ci-dessus)</span>
-                            <div class="pvd-champ">
-                                <label for="annee_debut">Année début</label>
-                                <input type="number" name="annee_debut[]" id="annee_debut" min="1970" max="2026">
-                            </div>
-                            <div class="pvd-champ">
-                                <label for="annee_fin">Année fin (optionnel)</label>
-                                <input type="number" name="annee_fin[]" id="annee_fin" min="1970" max="2026">
-                            </div>
-                            <div class="pvd-champ">
-                                <label for="pays_origine">Pays d'origine</label>
-                                <select name="pays_origine[]" id="pays_origine">
-                                    <option value="">Non renseigné</option>
-                                    <?php foreach ($paysConnus as $p): ?>
-                                        <option value="<?= htmlspecialchars($p) ?>"><?= htmlspecialchars($p) ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="pvd-champ">
-                                <label for="pays_origine_autre">Autre pays (si absent de la liste)</label>
-                                <input type="text" name="pays_origine_autre[]" id="pays_origine_autre" placeholder="Autre pays">
-                            </div>
-                        </div>
-                    </div>
-    
+
                     <input type="submit" value="modifier" name="modifier">
     
                 </form>
                 <?php
 
-                if(isset($_POST['modifier'])){
+                if(isset($_POST['modifier']) && empty($erreurs)){
 
                     // trie n'est plus dans le formulaire (retire volontairement -
                     // c'est une mise en avant editoriale, pas une saisie
@@ -493,6 +528,10 @@
                     $sous = $_POST['sous_categorie'];
                     $stock = $_POST['stock'];
                     $ref = $_POST['ref'];
+                    $paysAutreProduit = trim($_POST['pays_origine_produit_autre'] ?? '');
+                    $paysProduit = $paysAutreProduit !== ''
+                        ? strtoupper($paysAutreProduit)
+                        : (($_POST['pays_origine_produit'] ?? '') !== '' ? $_POST['pays_origine_produit'] : null);
                     // ===========image php========
 
                     function uploadImage($inputName) {
@@ -547,8 +586,8 @@
 
                     if(!empty($libelle) && !empty($prix)){
 
-                        $sqlModifier = 'UPDATE produit SET trie=? ,libelle=?,marquepiece=?,prix=?,id_categorie=?,id_sous_categorie=?,stock=?';
-                        $params = [$trie,$libelle,$marquepiece,$prix,$categorie,$sous,$stock]; 
+                        $sqlModifier = 'UPDATE produit SET trie=? ,libelle=?,marquepiece=?,prix=?,id_categorie=?,id_sous_categorie=?,stock=?,pays_origine=?';
+                        $params = [$trie,$libelle,$marquepiece,$prix,$categorie,$sous,$stock,$paysProduit];
                         // Mise à jour des images additionnelles si elles sont renseignées
 
                         if ($updateImg1) {
@@ -671,7 +710,7 @@
                         // vehicle's own modele up by id rather than trusting
                         // a pre-loaded array, since the "new vehicle" row's
                         // id_voiture is only known once the form is submitted.
-                        function pvd_lire_champs_structures(PDO $pdo, array $post, string $suffixe, $cle, int $idVoiture, string $libelleProduit, string $marquepieceProduit, ?string $notesActuelles): array
+                        function pvd_lire_champs_structures(PDO $pdo, array $post, string $suffixe, $cle, int $idVoiture, string $libelleProduit, string $marquepieceProduit, ?string $notesActuelles, ?string $paysProduit): array
                         {
                             $modele = $pdo->prepare('SELECT modele FROM voiture WHERE id_voiture = ?');
                             $modele->execute([$idVoiture]);
@@ -686,12 +725,15 @@
                             $suf = $suffixe !== '' ? '_' . $suffixe : '';
                             $anneeDebut = $post['annee_debut' . $suf][$cle] ?? '';
                             $anneeFin = $post['annee_fin' . $suf][$cle] ?? '';
-                            $paysListe = $post['pays_origine' . $suf][$cle] ?? '';
-                            $paysAutre = trim($post['pays_origine_autre' . $suf][$cle] ?? '');
 
                             $anneeDebut = $anneeDebut === '' ? null : (int)$anneeDebut;
                             $anneeFin = $anneeFin === '' ? null : (int)$anneeFin;
-                            $pays = $paysAutre !== '' ? strtoupper($paysAutre) : ($paysListe !== '' ? $paysListe : null);
+                            // Pays d'origine: single field at product level now
+                            // (99.1% of multi-vehicle products already shared
+                            // the same value across every one of their pvd
+                            // rows) - applied to every vehicle link, not asked
+                            // per vehicle.
+                            $pays = $paysProduit;
 
                             // No more per-vehicle marque field: 98.3% of
                             // multi-vehicle products already had the same
@@ -734,9 +776,14 @@
                                 $sqlNotesActuelles->execute([$id, $id_voiture]);
                                 $notesActuelles = $sqlNotesActuelles->fetchColumn() ?: null;
 
-                                [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, 'existing', $id_voiture, (int)$new_id_voiture, $libelle, $marquepiece, $notesActuelles);
-                                $updateMod = $pdo->prepare("UPDATE pvd SET id_voiture = ?, description = ?, annee_debut = ?, annee_fin = ?, marque_texte = ?, pays_origine = ?, notes_libres = ? WHERE id_produit = ? AND id_voiture = ?");
-                                $updateMod->execute([$new_id_voiture,$description,$anneeDebut,$anneeFin,$marqueTexte,$pays,$notes,$id,$id_voiture]);
+                                [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, 'existing', $id_voiture, (int)$new_id_voiture, $libelle, $marquepiece, $notesActuelles, $paysProduit);
+                                // pays_origine n'est plus ecrit ici : c'est desormais
+                                // produit.pays_origine (voir plus haut) qui porte
+                                // cette information - la colonne pvd.pays_origine
+                                // est gelee, jamais supprimee (meme convention que
+                                // pvd.description).
+                                $updateMod = $pdo->prepare("UPDATE pvd SET id_voiture = ?, description = ?, annee_debut = ?, annee_fin = ?, marque_texte = ?, notes_libres = ? WHERE id_produit = ? AND id_voiture = ?");
+                                $updateMod->execute([$new_id_voiture,$description,$anneeDebut,$anneeFin,$marqueTexte,$notes,$id,$id_voiture]);
                                 }
                             }
                         }
@@ -744,10 +791,10 @@
                             foreach ($modeles_new as $index => $newMod) {
                                 if (!empty($newMod)) {
                                     // New row, nothing to preserve - null is correct here.
-                                    [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, '', $index, (int)$newMod, $libelle, $marquepiece, null);
-                                    $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,annee_debut,annee_fin,marque_texte,pays_origine,notes_libres) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+                                    [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, '', $index, (int)$newMod, $libelle, $marquepiece, null, $paysProduit);
+                                    $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,annee_debut,annee_fin,marque_texte,notes_libres) VALUES (?, ?, ?, ?, ?, ?, ?)';
                                     $insertMod = $pdo->prepare($sqlVoi);
-                                    $insertMod->execute([$id,$newMod,$description,$anneeDebut,$anneeFin,$marqueTexte,$pays,$notes]);
+                                    $insertMod->execute([$id,$newMod,$description,$anneeDebut,$anneeFin,$marqueTexte,$notes]);
                                 }
                             }
                         }
@@ -766,6 +813,50 @@
         </div>
         
     <?php }else{
+        // Meme logique de validation precoce que la branche modification -
+        // voir le commentaire equivalent plus haut.
+        $erreurs = [];
+        $genericCoche = false;
+        if (isset($_POST['ajouter'])) {
+            if (trim($_POST['libelle'] ?? '') === '') {
+                $erreurs[] = 'Le libellé est obligatoire.';
+            }
+            if (trim((string)($_POST['prix'] ?? '')) === '') {
+                $erreurs[] = 'Le prix est obligatoire.';
+            }
+            if (trim($_POST['marquepiece'] ?? '') === '') {
+                $erreurs[] = 'La marque de la pièce est obligatoire.';
+            }
+            if (($_POST['categorie'] ?? 'categorie') === 'categorie' || trim($_POST['categorie'] ?? '') === '') {
+                $erreurs[] = 'La catégorie est obligatoire.';
+            }
+
+            $refsPost = array_filter($_POST['references'] ?? [], fn($v) => trim($v) !== '');
+            if (empty($refsPost)) {
+                $erreurs[] = 'Au moins une référence est obligatoire.';
+            }
+
+            $paysAutrePost = trim($_POST['pays_origine_produit_autre'] ?? '');
+            $paysPost = $paysAutrePost !== '' ? $paysAutrePost : ($_POST['pays_origine_produit'] ?? '');
+            if (trim($paysPost) === '') {
+                $erreurs[] = "Le pays d'origine est obligatoire.";
+            }
+
+            $genericCoche = isset($_POST['produit_generique']);
+            $modelesNouveaux = array_filter($_POST['modele'] ?? [], fn($v) => !empty($v));
+            if (!$genericCoche && empty($modelesNouveaux)) {
+                $erreurs[] = 'Sélectionnez au moins un véhicule, ou cochez "Produit générique".';
+            }
+            foreach (array_keys($modelesNouveaux) as $idx) {
+                if (trim($_POST['annee_debut'][$idx] ?? '') === '') {
+                    $erreurs[] = "L'année de début est obligatoire pour chaque véhicule sélectionné.";
+                    break;
+                }
+            }
+        }
+        $valLibelle = $_POST['libelle'] ?? '';
+        $valMarquepiece = $_POST['marquepiece'] ?? '';
+        $valPrix = $_POST['prix'] ?? '';
      ?>
 
 
@@ -786,25 +877,44 @@
 
             <h3>Ajouter un produit</h3>
 
+            <?php if (!empty($erreurs)): ?>
+                <div class="erreur" style="background:#fbeceb;border:1px solid #b3261e;color:#b3261e;padding:10px 14px;border-radius:6px;margin:0 0 14px;">
+                    <ul style="margin:0;padding-inline-start:1.2em;">
+                        <?php foreach ($erreurs as $e): ?><li><?= htmlspecialchars($e) ?></li><?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+
             <form method="POST" id="form-produit" enctype="multipart/form-data" >
 
                 <label for="produit">Produit</label>
 
-                <input type="text" name="libelle" placeholder="entrer le produit">
+                <input type="text" name="libelle" placeholder="entrer le produit" value="<?= htmlspecialchars($valLibelle) ?>" required>
 
                 <label for="marque">Marque piece</label>
 
-                <input type="text" name="marquepiece" placeholder="entrer la marque du produit">
+                <input type="text" name="marquepiece" placeholder="entrer la marque du produit" value="<?= htmlspecialchars($valMarquepiece) ?>" required>
 
                 <label for="prix">Prix</label>
 
-                <input type="number" name="prix" placeholder="Prix" min="0"><br>
+                <input type="number" name="prix" placeholder="Prix" min="0" value="<?= htmlspecialchars($valPrix) ?>" required><br>
+
+                <label for="pays_origine_produit">Pays d'origine</label>
+                <select name="pays_origine_produit" id="pays_origine_produit">
+                    <option value="">Sélectionner un pays</option>
+                    <?php foreach (pvd_liste_pays_connus() as $p): ?>
+                        <option value="<?= htmlspecialchars($p) ?>" <?= ($_POST['pays_origine_produit'] ?? '') === $p ? 'selected' : '' ?>><?= htmlspecialchars($p) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <input type="text" name="pays_origine_produit_autre" placeholder="Autre pays (si absent de la liste)" value="<?= htmlspecialchars($_POST['pays_origine_produit_autre'] ?? '') ?>"><br>
 
                 <div id="reference-container">
-                    <label for="reference0">Référence 1</label>
-                    <input type="text" name="references[]" placeholder="Entrer la référence 1">
+                    <div class="reference-row">
+                        <label for="reference0">Référence 1</label>
+                        <input type="text" name="references[]" placeholder="Entrer la référence 1" required>
+                    </div>
                 </div>
-                <button type="button" onclick="addReferenceField()" id="but-ref">Ajouter une référence</button><br>
+                <button type="button" onclick="addReferenceField()" id="but-ref">Ajouter une référence</button>
                  <div id="voiture-container">
                     <div class="voiture-group">
                         <label for="voiture">Voiture 1</label>
@@ -831,13 +941,19 @@
                     </select>
                 
                         <select name="modele[]" id="modeleSelect">
-    
+
                         <option value="modele">Sélectionner un modèle</option>
-    
+
                     </select>
-    
+
+                        <label for="annee_debut">Année début :</label>
+                        <input type="number" name="annee_debut[]" id="annee_debut" min="1970" max="2026">
+
+                        <label for="annee_fin">Année fin :</label>
+                        <input type="number" name="annee_fin[]" id="annee_fin" min="1970" max="2026">
+
                         <script>
-    
+
                      document.getElementById('marqueSelect').addEventListener('change', function() {
     
                         var marqueId = this.value; // Récupère l'ID de la marque sélectionnée
@@ -894,10 +1010,11 @@
                     </div>
                 </div>
                 <button type="button" onclick="addVoitureField()" id="but-ref">Ajouter une voiture</button><br>
-                
-                <select name="categorie" id="categorieSelect">
+                <label><input type="checkbox" name="produit_generique" id="produit_generique" <?= $genericCoche ? 'checked' : '' ?>> Produit générique, non lié à un véhicule spécifique</label><br>
 
-                    <option value="categorie">categorie</option>
+                <select name="categorie" id="categorieSelect" required>
+
+                    <option value="" <?= empty($_POST['categorie']) ? 'selected' : '' ?>>categorie</option>
 
                     <?php
 
@@ -1030,39 +1147,13 @@
                 <input type="file" name="img_produit10">
 
                 <br>
-                <div id="descDiv">
-                    <div class="row pvd-structure">
-                        <span class="pvd-titre">Détails pour Voiture 1 (celle sélectionnée ci-dessus)</span>
-                        <div class="pvd-champ">
-                            <label for="annee_debut">Année début</label>
-                            <input type="number" name="annee_debut[]" id="annee_debut" min="1970" max="2026">
-                        </div>
-                        <div class="pvd-champ">
-                            <label for="annee_fin">Année fin (optionnel)</label>
-                            <input type="number" name="annee_fin[]" id="annee_fin" min="1970" max="2026">
-                        </div>
-                        <div class="pvd-champ">
-                            <label for="pays_origine">Pays d'origine</label>
-                            <select name="pays_origine[]" id="pays_origine">
-                                <option value="">Non renseigné</option>
-                                <?php foreach ($paysConnus as $p): ?>
-                                    <option value="<?= htmlspecialchars($p) ?>"><?= htmlspecialchars($p) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="pvd-champ">
-                            <label for="pays_origine_autre">Autre pays (si absent de la liste)</label>
-                            <input type="text" name="pays_origine_autre[]" id="pays_origine_autre" placeholder="Autre pays">
-                        </div>
-                    </div>
-                </div>
 
                 <input type="submit" value="ajouter" name="ajouter">
 
             </form>
 
             <?php
-                if (isset($_POST['ajouter'])) {
+                if (isset($_POST['ajouter']) && empty($erreurs)) {
 
                     // trie n'est plus dans le formulaire (mise en avant
                     // editoriale, pas une saisie produit courante) - un
@@ -1074,6 +1165,10 @@
                     $categorie = $_POST['categorie'];
                     $sous = $_POST['sous_categorie'];
                     $stock = $_POST['stock'];
+                    $paysAutreProduit = trim($_POST['pays_origine_produit_autre'] ?? '');
+                    $paysProduit = $paysAutreProduit !== ''
+                        ? strtoupper($paysAutreProduit)
+                        : (($_POST['pays_origine_produit'] ?? '') !== '' ? $_POST['pays_origine_produit'] : null);
 
                     // Function to upload image if it exists
                     function uploadImage($inputName) {
@@ -1100,9 +1195,9 @@
                     }
                     if (!empty($libelle) && !empty($prix)) {
                         // Prepare the SQL statement dynamically based on available images
-                        $columns = 'trie,id_categorie, id_sous_categorie, libelle, marquepiece, prix, stock';
-                        $placeholders = '?, ?, ?, ?, ?, ?, ?';
-                        $params = [$trie, $categorie, $sous, $libelle, $marquepiece, $prix, $stock];
+                        $columns = 'trie,id_categorie, id_sous_categorie, libelle, marquepiece, prix, stock, pays_origine';
+                        $placeholders = '?, ?, ?, ?, ?, ?, ?, ?';
+                        $params = [$trie, $categorie, $sous, $libelle, $marquepiece, $prix, $stock, $paysProduit];
 
                         foreach ($images as $column => $image) {
 
@@ -1126,7 +1221,7 @@
                         // shared because only one of the two top-level
                         // branches (edit vs add) of this file ever runs per
                         // request.
-                        function pvd_lire_champs_structures(PDO $pdo, array $post, $cle, int $idVoiture, string $libelleProduit, string $marquepieceProduit): array
+                        function pvd_lire_champs_structures(PDO $pdo, array $post, $cle, int $idVoiture, string $libelleProduit, string $marquepieceProduit, ?string $paysProduit): array
                         {
                             $modele = $pdo->prepare('SELECT modele FROM voiture WHERE id_voiture = ?');
                             $modele->execute([$idVoiture]);
@@ -1134,12 +1229,10 @@
 
                             $anneeDebut = $post['annee_debut'][$cle] ?? '';
                             $anneeFin = $post['annee_fin'][$cle] ?? '';
-                            $paysListe = $post['pays_origine'][$cle] ?? '';
-                            $paysAutre = trim($post['pays_origine_autre'][$cle] ?? '');
 
                             $anneeDebut = $anneeDebut === '' ? null : (int)$anneeDebut;
                             $anneeFin = $anneeFin === '' ? null : (int)$anneeFin;
-                            $pays = $paysAutre !== '' ? strtoupper($paysAutre) : ($paysListe !== '' ? $paysListe : null);
+                            $pays = $paysProduit;
 
                             // No per-vehicle marque field (see the modifier
                             // branch above for why) - produit.marquepiece
@@ -1163,14 +1256,16 @@
                                 if (empty($modele)) {
                                     continue;
                                 }
-                                [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, $index, (int)$modele, $libelle, $marquepiece);
-                                $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,annee_debut,annee_fin,marque_texte,pays_origine,notes_libres) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+                                [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, $index, (int)$modele, $libelle, $marquepiece, $paysProduit);
+                                // pays_origine n'est plus ecrit ici : voir le
+                                // commentaire equivalent dans la branche modifier.
+                                $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,annee_debut,annee_fin,marque_texte,notes_libres) VALUES (?, ?, ?, ?, ?, ?, ?)';
                                 $stmtVoi = $pdo->prepare($sqlVoi);
-                                $stmtVoi->execute([$id_produit,$modele,$description,$anneeDebut,$anneeFin,$marqueTexte,$pays,$notes]);
+                                $stmtVoi->execute([$id_produit,$modele,$description,$anneeDebut,$anneeFin,$marqueTexte,$notes]);
                             }
                         //    header('Location: produit.php');
 
-                        } else {
+                        } elseif (empty($_POST['produit_generique'])) {
 
                             echo 'Veuillez choisir au moins une voiture';
 
@@ -1209,7 +1304,11 @@
         referenceCount++;
         const container = document.getElementById('reference-container');
 
-        // Crée un nouvel élément label et input pour la nouvelle référence
+        // Chaque référence sur sa propre ligne (row bloc), pour ne pas
+        // s'empiler à côté du bouton "Ajouter une référence".
+        const row = document.createElement('div');
+        row.classList.add('reference-row');
+
         const label = document.createElement('label');
         label.setAttribute('for', 'reference' + referenceCount);
         label.textContent = 'Référence ' + referenceCount;
@@ -1219,9 +1318,9 @@
         input.setAttribute('name', 'references[]');
         input.setAttribute('placeholder', 'Entrer la référence ' + referenceCount);
 
-        // Ajoute le label et l'input au conteneur
-        container.appendChild(label);
-        container.appendChild(input);
+        row.appendChild(label);
+        row.appendChild(input);
+        container.appendChild(row);
     }
 </script>
 <script>
@@ -1306,79 +1405,41 @@
             xhr.send();
         });
 
-        // Ajoute les éléments au conteneur div
-        voitureDiv.appendChild(label);
-        voitureDiv.appendChild(marqueSelect);
-        voitureDiv.appendChild(modeleSelect);
-
-        // Ajoute le conteneur div au conteneur principal
-        container.appendChild(voitureDiv);
-
-        // === Ajoute les champs structures (annee/marque/pays/notes) pour
-        // cette voiture, au lieu d'une seule zone de texte libre - voir
-        // PLAN_PVD_DESCRIPTION.md §3. Memes noms de champs (tableaux []) que
-        // le premier bloc statique de #descDiv, dans les deux formulaires
-        // (ajout et modification), puisque addVoitureField() est partagee
-        // entre les deux.
-        const descDiv = document.getElementById('descDiv');
-        const structureDiv = document.createElement('div');
-        structureDiv.classList.add('row', 'pvd-structure');
-
-        const structureTitre = document.createElement('span');
-        structureTitre.classList.add('pvd-titre');
-        structureTitre.textContent = `Détails pour Voiture ${voitureCount}`;
-        structureDiv.appendChild(structureTitre);
-
-        function champ(labelText, inputEl, pleineLargeur) {
-            const wrapper = document.createElement('div');
-            wrapper.classList.add('pvd-champ');
-            if (pleineLargeur) wrapper.classList.add('pvd-notes');
-            const label = document.createElement('label');
-            label.textContent = labelText;
-            const inputId = 'pvd-' + inputEl.getAttribute('name').replace(/[^a-z]/gi, '') + voitureCount;
-            label.setAttribute('for', inputId);
-            inputEl.id = inputId;
-            wrapper.appendChild(label);
-            wrapper.appendChild(inputEl);
-            structureDiv.appendChild(wrapper);
-        }
+        // Année début/fin sur la meme ligne que marque/modele - meme groupe
+        // (voiture-group), pas une zone separee ailleurs sur la page.
+        const anneeDebutLabel = document.createElement('label');
+        anneeDebutLabel.setAttribute('for', 'annee_debut' + voitureCount);
+        anneeDebutLabel.textContent = 'Année début :';
 
         const anneeDebutInput = document.createElement('input');
         anneeDebutInput.type = 'number';
         anneeDebutInput.name = 'annee_debut[]';
+        anneeDebutInput.id = 'annee_debut' + voitureCount;
         anneeDebutInput.min = '1970';
         anneeDebutInput.max = '2026';
-        champ('Année début', anneeDebutInput);
+
+        const anneeFinLabel = document.createElement('label');
+        anneeFinLabel.setAttribute('for', 'annee_fin' + voitureCount);
+        anneeFinLabel.textContent = 'Année fin :';
 
         const anneeFinInput = document.createElement('input');
         anneeFinInput.type = 'number';
         anneeFinInput.name = 'annee_fin[]';
+        anneeFinInput.id = 'annee_fin' + voitureCount;
         anneeFinInput.min = '1970';
         anneeFinInput.max = '2026';
-        champ('Année fin (optionnel)', anneeFinInput);
 
-        const paysSelect = document.createElement('select');
-        paysSelect.name = 'pays_origine[]';
-        const paysDefaut = document.createElement('option');
-        paysDefaut.value = '';
-        paysDefaut.textContent = 'Non renseigné';
-        paysSelect.appendChild(paysDefaut);
-        const paysConnusJs = <?php echo json_encode($paysConnus); ?>;
-        paysConnusJs.forEach(function (p) {
-            const option = document.createElement('option');
-            option.value = p;
-            option.textContent = p;
-            paysSelect.appendChild(option);
-        });
-        champ("Pays d'origine", paysSelect);
+        // Ajoute les éléments au conteneur div
+        voitureDiv.appendChild(label);
+        voitureDiv.appendChild(marqueSelect);
+        voitureDiv.appendChild(modeleSelect);
+        voitureDiv.appendChild(anneeDebutLabel);
+        voitureDiv.appendChild(anneeDebutInput);
+        voitureDiv.appendChild(anneeFinLabel);
+        voitureDiv.appendChild(anneeFinInput);
 
-        const paysAutreInput = document.createElement('input');
-        paysAutreInput.type = 'text';
-        paysAutreInput.name = 'pays_origine_autre[]';
-        paysAutreInput.placeholder = 'Autre pays';
-        champ('Autre pays (si absent de la liste)', paysAutreInput);
-
-        descDiv.appendChild(structureDiv);
+        // Ajoute le conteneur div au conteneur principal
+        container.appendChild(voitureDiv);
     }
 </script>
 

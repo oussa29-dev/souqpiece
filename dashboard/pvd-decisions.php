@@ -101,28 +101,39 @@
 
         if (isset($_POST['completer'])) {
             $n = 0;
+            // Annee : toujours par vehicule (pvd) - inchange.
             foreach ($_POST['pvd'] ?? [] as $idPvd => $champs) {
                 $idPvd = (int)$idPvd;
                 $anneeDebut = $champs['annee_debut'] !== '' ? (int)$champs['annee_debut'] : null;
                 $anneeFin = $champs['annee_fin'] !== '' ? (int)$champs['annee_fin'] : null;
-                $paysAutre = trim($champs['pays_origine_autre'] ?? '');
-                $pays = $paysAutre !== '' ? strtoupper($paysAutre) : (($champs['pays_origine'] ?? '') !== '' ? $champs['pays_origine'] : null);
-                if ($anneeDebut === null && $pays === null) {
+                if ($anneeDebut === null) {
                     continue;
                 }
-                $current = $pdo->prepare('SELECT annee_debut, annee_fin, pays_origine FROM pvd WHERE id_pvd = ?');
+                $current = $pdo->prepare('SELECT annee_debut, annee_fin FROM pvd WHERE id_pvd = ?');
                 $current->execute([$idPvd]);
                 $row = $current->fetch(PDO::FETCH_ASSOC);
-                $update = $pdo->prepare('UPDATE pvd SET annee_debut = ?, annee_fin = ?, pays_origine = ? WHERE id_pvd = ?');
+                $update = $pdo->prepare('UPDATE pvd SET annee_debut = ?, annee_fin = ? WHERE id_pvd = ?');
                 $update->execute([
                     $anneeDebut ?? $row['annee_debut'],
                     $anneeFin ?? $row['annee_fin'],
-                    $pays ?? $row['pays_origine'],
                     $idPvd,
                 ]);
                 $n++;
             }
-            $message = "$n ligne(s) complétée(s).";
+            // Pays : par produit (voir db/produit_pays_origine.sql) - une
+            // seule mise a jour par produit, meme si plusieurs de ses
+            // vehicules apparaissent sur cette page.
+            foreach ($_POST['produit'] ?? [] as $idProduit => $champs) {
+                $idProduit = (int)$idProduit;
+                $paysAutre = trim($champs['pays_origine_autre'] ?? '');
+                $pays = $paysAutre !== '' ? strtoupper($paysAutre) : (($champs['pays_origine'] ?? '') !== '' ? $champs['pays_origine'] : null);
+                if ($pays === null) {
+                    continue;
+                }
+                $pdo->prepare('UPDATE produit SET pays_origine = ? WHERE id_produit = ?')->execute([$pays, $idProduit]);
+                $n++;
+            }
+            $message = "$n complétion(s) enregistrée(s).";
         }
 
         // --- Comptes pour les onglets ---
@@ -153,7 +164,7 @@
 
         $countRapide = $countVide + count($idsTypo);
         $countLent = count($idsReel);
-        $countCompletion = (int)$pdo->query('SELECT COUNT(*) FROM pvd WHERE annee_debut IS NULL OR pays_origine IS NULL')->fetchColumn();
+        $countCompletion = (int)$pdo->query('SELECT COUNT(*) FROM pvd pv JOIN produit pr ON pr.id_produit = pv.id_produit WHERE pv.annee_debut IS NULL OR pr.pays_origine IS NULL')->fetchColumn();
 
         $paysConnus = pvd_liste_pays_connus();
     ?>
@@ -257,7 +268,7 @@
                 <p class="rc-desc">Lignes sans année et/ou sans pays d'origine. Complète ce qui est connaissable ; laisse vide sinon.</p>
                 <form method="POST">
                     <?php
-                        $rows = $pdo->prepare('SELECT pv.id_pvd, pr.libelle, v.modele, pv.annee_debut, pv.annee_fin, pv.pays_origine, pv.notes_libres, GROUP_CONCAT(DISTINCT ref.reference SEPARATOR \', \') AS refs FROM pvd pv JOIN produit pr ON pr.id_produit = pv.id_produit JOIN voiture v ON v.id_voiture = pv.id_voiture LEFT JOIN reference ref ON ref.id_produit = pr.id_produit WHERE pv.annee_debut IS NULL OR pv.pays_origine IS NULL GROUP BY pv.id_pvd ORDER BY pv.id_pvd LIMIT ? OFFSET ?');
+                        $rows = $pdo->prepare('SELECT pv.id_pvd, pr.id_produit, pr.libelle, pr.pays_origine, v.modele, pv.annee_debut, pv.annee_fin, pv.notes_libres, GROUP_CONCAT(DISTINCT ref.reference SEPARATOR \', \') AS refs FROM pvd pv JOIN produit pr ON pr.id_produit = pv.id_produit JOIN voiture v ON v.id_voiture = pv.id_voiture LEFT JOIN reference ref ON ref.id_produit = pr.id_produit WHERE pv.annee_debut IS NULL OR pr.pays_origine IS NULL GROUP BY pv.id_pvd ORDER BY pv.id_pvd LIMIT ? OFFSET ?');
                         $rows->bindValue(1, $itemsPerPage, PDO::PARAM_INT);
                         $rows->bindValue(2, $offset, PDO::PARAM_INT);
                         $rows->execute();
@@ -282,19 +293,25 @@
                                     <label>Année fin (optionnel)</label>
                                     <input type="number" name="pvd[<?= $r['id_pvd'] ?>][annee_fin]" min="1970" max="2026" value="<?= htmlspecialchars($r['annee_fin'] ?? '') ?>">
                                 </div>
-                                <div class="pvd-champ">
-                                    <label>Pays d'origine</label>
-                                    <select name="pvd[<?= $r['id_pvd'] ?>][pays_origine]">
-                                        <option value="">Non renseigné</option>
-                                        <?php foreach ($paysConnus as $p): ?>
-                                            <option value="<?= htmlspecialchars($p) ?>" <?= $r['pays_origine'] === $p ? 'selected' : '' ?>><?= htmlspecialchars($p) ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-                                <div class="pvd-champ">
-                                    <label>Autre pays</label>
-                                    <input type="text" name="pvd[<?= $r['id_pvd'] ?>][pays_origine_autre]" placeholder="Autre pays">
-                                </div>
+                                <?php if ($r['pays_origine'] === null): ?>
+                                    <!-- Pays : propriete du produit, pas du vehicule - une
+                                         valeur saisie ici s'applique a tous les vehicules
+                                         de ce produit (voir db/produit_pays_origine.sql).
+                                         Champ absent si le produit a deja un pays. -->
+                                    <div class="pvd-champ">
+                                        <label>Pays d'origine (produit)</label>
+                                        <select name="produit[<?= $r['id_produit'] ?>][pays_origine]">
+                                            <option value="">Non renseigné</option>
+                                            <?php foreach ($paysConnus as $p): ?>
+                                                <option value="<?= htmlspecialchars($p) ?>"><?= htmlspecialchars($p) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="pvd-champ">
+                                        <label>Autre pays</label>
+                                        <input type="text" name="produit[<?= $r['id_produit'] ?>][pays_origine_autre]" placeholder="Autre pays">
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                     <?php
