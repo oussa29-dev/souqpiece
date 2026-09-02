@@ -29,7 +29,9 @@
     <?php
         // Inclure les fichiers nécessaires pour PhpSpreadsheet
         require '../vendor/autoload.php';
-        
+        require_once 'include/import_classification.php';
+        require_once 'include/pvd_extraction.php';
+
         use PhpOffice\PhpSpreadsheet\IOFactory;
         
         // if (isset($_POST['modifier'])) {
@@ -168,22 +170,130 @@
         if (isset($_POST['modifier'])) {
             if (isset($_FILES['fichier']) && $_FILES['fichier']['error'] == UPLOAD_ERR_OK) {
                 $fichier_tmp = $_FILES['fichier']['tmp_name'];
+                // Un fichier fournisseur reel peut depasser plusieurs milliers
+                // de lignes - la limite par defaut de 120s (max_execution_time)
+                // coupe le script en pleine transaction avant la fin (deja
+                // observe : PHP Fatal error, transaction annulee automatiquement,
+                // aucune donnee ecrite - echec propre mais total). 10 minutes.
+                set_time_limit(600);
+
+                // Barre de progression : pas d'AJAX/websocket dans ce projet,
+                // donc on desactive la bufferisation et on pousse des <script>
+                // au fur et a mesure - chacun s'execute des son arrivee dans
+                // le navigateur et met a jour la meme barre en place. Marche
+                // sur de l'hebergement mutualise classique, aucune dependance
+                // en plus.
+                while (ob_get_level() > 0) {
+                    @ob_end_flush();
+                }
+                @ini_set('zlib.output_compression', '0');
+                @ini_set('implicit_flush', '1');
+                ob_implicit_flush(true);
+
+                echo '<div style="margin:14px 1px;max-width:520px;">'
+                    . '<div style="background:#eee;border-radius:6px;height:20px;overflow:hidden;">'
+                    . '<div id="import-bar" style="background:rgb(24,185,24);height:100%;width:0%;transition:width .3s;"></div>'
+                    . '</div>'
+                    . '<p id="import-texte" style="margin:6px 0;color:#555;font-size:14px;">Préparation...</p>'
+                    . '</div>';
+                flush();
+
+                function import_progress(string $texte, float $pourcentage): void
+                {
+                    // Repousse la limite d'execution a chaque appel plutot que
+                    // de fixer une seule valeur globale au depart - un gros
+                    // fichier avec beaucoup de designations jamais vues peut
+                    // depasser n'importe quelle limite fixe (deja observe :
+                    // 600s depassees en pleine classification). Tant que
+                    // l'ecart entre deux appels reste sous 600s, le script
+                    // peut tourner aussi longtemps que necessaire.
+                    set_time_limit(600);
+                    $pourcentage = max(0, min(100, $pourcentage));
+                    echo '<script>'
+                        . 'document.getElementById("import-bar").style.width="' . $pourcentage . '%";'
+                        . 'document.getElementById("import-texte").innerText=' . json_encode($texte) . ';'
+                        . '</script>' . "\n";
+                    flush();
+                }
+
+                function import_eta(float $debut, int $fait, int $total): string
+                {
+                    if ($fait === 0) {
+                        return '';
+                    }
+                    $ecoule = microtime(true) - $debut;
+                    $restant = ($ecoule / $fait) * ($total - $fait);
+                    if ($restant < 60) {
+                        return ' - environ ' . (int)round($restant) . 's restantes';
+                    }
+                    return ' - environ ' . (int)round($restant / 60) . ' min restantes';
+                }
+
                 try {
                     // Charger le fichier Excel
                     $spreadsheet = IOFactory::load($fichier_tmp);
                     $sheet = $spreadsheet->getActiveSheet();
-                    
+
+                    // getHighestRow() reflete la dimension globale de la
+                    // feuille (mise en forme, cellule isolee tres bas...) et
+                    // peut etre bien plus grande que la derniere ligne
+                    // reellement remplie - deja observe : 18084 rapporte par
+                    // getHighestRow() alors que les colonnes utiles s'arretent
+                    // a 8500, ce qui faisait boucler inutilement sur ~9500
+                    // lignes vides (lecture de cellules a chaque fois) et
+                    // ralentissait l'import pour rien. getHighestDataRow()
+                    // donne la vraie derniere ligne de donnees par colonne.
+                    $derniereLigneUtile = max(
+                        $sheet->getHighestDataRow('A'),
+                        $sheet->getHighestDataRow('C')
+                    );
+
+                    // Auto-categorisation/liaison-vehicule (voir
+                    // db/import_designation.sql) : une passe a part, AVANT la
+                    // transaction d'import, pour que le cache LLM soit ecrit
+                    // meme si l'import lui-meme echoue ensuite (ne jamais
+                    // repayer un appel LLM deja fait).
+                    $designationsSheet = [];
+                    foreach ($sheet->getRowIterator(2, $derniereLigneUtile) as $ligneDesignation) {
+                        $texte = trim((string)$sheet->getCell('C' . $ligneDesignation->getRowIndex())->getCalculatedValue());
+                        if ($texte !== '') {
+                            $designationsSheet[$texte] = true;
+                        }
+                    }
+
+                    import_progress('Classification des désignations (0/' . count($designationsSheet) . ')...', 0);
+                    $debutClassification = microtime(true);
+                    $classifications = import_classification_resoudre($pdo, array_keys($designationsSheet), function (int $lotsFait, int $lotsTotal) use ($debutClassification) {
+                        $pourcentage = $lotsTotal > 0 ? ($lotsFait / $lotsTotal) * 50 : 50;
+                        import_progress(
+                            "Classification des désignations, lot $lotsFait/$lotsTotal" . import_eta($debutClassification, $lotsFait, $lotsTotal),
+                            $pourcentage
+                        );
+                    });
+                    import_progress('Classification terminée. Import des produits...', 50);
+
                     // Initialisation des compteurs
                     $newProductsCount = 0;
                     $updatedProductsCount = 0;
                     $errors = [];
-                    
+
                     // Démarrer une transaction
                     $pdo->beginTransaction();
-        
-                    foreach ($sheet->getRowIterator(2) as $row) {
+
+                    $totalLignes = $derniereLigneUtile - 1;
+                    $ligneCourante = 0;
+                    $debutImport = microtime(true);
+
+                    foreach ($sheet->getRowIterator(2, $derniereLigneUtile) as $row) {
                         $rowIndex = $row->getRowIndex();
-                        
+                        $ligneCourante++;
+                        if ($ligneCourante % 200 === 0 || $ligneCourante === $totalLignes) {
+                            import_progress(
+                                "Import des produits, ligne $ligneCourante/$totalLignes" . import_eta($debutImport, $ligneCourante, $totalLignes),
+                                50 + ($totalLignes > 0 ? ($ligneCourante / $totalLignes) * 50 : 50)
+                            );
+                        }
+
                         // Récupération des données du fichier Excel - CORRECTION ICI
                         $reference = trim($sheet->getCell('A' . $rowIndex)->getCalculatedValue() ?? '');
                         $libelle = trim($sheet->getCell('C' . $rowIndex)->getCalculatedValue() ?? '');
@@ -258,36 +368,76 @@
                         
                         if ($productExists) {
                             // Mise à jour du produit existant
-                            $updateSql = "UPDATE produit 
-                                         SET prix = ?, stock = ? 
+                            $updateSql = "UPDATE produit
+                                         SET prix = ?, stock = ?
                                          WHERE id_produit = ?";
                             $updateStmt = $pdo->prepare($updateSql);
                             $updateStmt->execute([$prix, $stock, $matchingProductId]);
                             $updatedProductsCount++;
+
+                            // Trace aussi les produits deja existants vers leur
+                            // designation (pas seulement les nouveaux crees
+                            // ci-dessous) - sinon une correction humaine plus
+                            // tard sur la page de revision ne peut jamais
+                            // atteindre les produits qui existaient deja avant
+                            // cet import (98% des lignes reelles mesurees).
+                            $classificationExistant = $classifications[$libelle] ?? null;
+                            if ($classificationExistant !== null) {
+                                import_designation_tracer_produit($pdo, $classificationExistant['id_import_designation'], (int)$matchingProductId);
+                            }
                         } else {
                             // Insertion d'un nouveau produit avec gestion des erreurs
                             try {
+                                // Categorie/sous-categorie/vehicules suggeres par l'auto-
+                                // classification (voir db/import_designation.sql) - appliques
+                                // uniquement si statut='resolu' (confiance suffisante pour ne
+                                // pas passer par la revue humaine). Un statut 'a_verifier' ne
+                                // doit jamais ecrire quoi que ce soit sur le produit reel - 0/
+                                // aucun vehicule, meme convention "non categorise" que le reste
+                                // du catalogue, jamais bloquant pour la creation du produit.
+                                $classification = $classifications[$libelle] ?? null;
+                                $classificationResolue = $classification !== null && $classification['statut'] === 'resolu';
+                                $idCategorie = $classificationResolue ? $classification['id_categorie'] : 0;
+                                $idSousCategorie = $classificationResolue ? $classification['id_sous_categorie'] : 0;
+
                                 // Insertion du produit - CORRECTION: utiliser les bonnes variables
-                                $insertProductSql = "INSERT INTO produit (libelle, marquepiece, prix, stock) VALUES (?, ?, ?, ?)";
+                                $insertProductSql = "INSERT INTO produit (libelle, marquepiece, prix, stock, id_categorie, id_sous_categorie) VALUES (?, ?, ?, ?, ?, ?)";
                                 $insertProductStmt = $pdo->prepare($insertProductSql);
-                                $insertProductStmt->execute([$libelle, $marque, $prix, $stock]);
+                                $insertProductStmt->execute([$libelle, $marque, $prix, $stock, $idCategorie, $idSousCategorie]);
                                 $newProductId = $pdo->lastInsertId();
-                                
+
                                 // Vérifier que l'ID est valide
                                 if ($newProductId <= 0) {
                                     throw new Exception("Échec de l'insertion du produit - ID invalide");
                                 }
-                                
+
                                 // Insertion de la référence - CORRECTION: utiliser $reference, pas $marque
                                 $insertRefSql = "INSERT INTO reference (reference, id_produit) VALUES (?, ?)";
                                 $insertRefStmt = $pdo->prepare($insertRefSql);
                                 $insertRefStmt->execute([$reference, $newProductId]);
-                                
+
                                 // Vérifier que la référence a bien été insérée
                                 if ($insertRefStmt->rowCount() === 0) {
                                     throw new Exception("Échec de l'insertion de la référence");
                                 }
-                                
+
+                                if ($classification !== null) {
+                                    // Trace toujours, meme non resolu - c'est ce qui permet a
+                                    // l'onglet de revision de rattraper ce produit plus tard.
+                                    import_designation_tracer_produit($pdo, $classification['id_import_designation'], (int)$newProductId);
+
+                                    if ($classificationResolue && !empty($classification['id_voitures'])) {
+                                        $sqlModele = $pdo->prepare('SELECT modele FROM voiture WHERE id_voiture = ?');
+                                        $insertPvd = $pdo->prepare('INSERT INTO pvd (id_produit, id_voiture, description) VALUES (?, ?, ?)');
+                                        foreach ($classification['id_voitures'] as $idVoiture) {
+                                            $sqlModele->execute([$idVoiture]);
+                                            $modeleVoiture = $sqlModele->fetchColumn() ?: '';
+                                            $description = pvd_composer_description($libelle, $modeleVoiture, null, null, $marque, null, null);
+                                            $insertPvd->execute([$newProductId, $idVoiture, $description]);
+                                        }
+                                    }
+                                }
+
                                 $newProductsCount++;
                             } catch (Exception $e) {
                                 $errors[] = "Ligne $rowIndex: " . $e->getMessage();
@@ -299,7 +449,8 @@
                     
                     // Valider la transaction
                     $pdo->commit();
-                    
+                    import_progress('Import terminé.', 100);
+
                     // Affichage des résultats
                     echo "<div class='result-message'>";
                     if ($newProductsCount > 0) {

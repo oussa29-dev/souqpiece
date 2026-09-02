@@ -10,6 +10,12 @@ return [
     // ai/prompt.php or ai/chat.php ever needs to change.
     'provider' => 'groq', // 'gemini' | 'anthropic' | 'groq'
 
+    // Optional: separate provider for dashboard/include/import_classification.php
+    // (stock.php import auto-categorisation) - independent of the provider
+    // above, which stays the customer-facing assistant's. Falls back to
+    // 'provider' if omitted.
+    'import_classification_provider' => 'gemini',
+
     'rate_limit' => [
         'max_per_session_per_day' => 40,
         'max_per_session_per_5min' => 8,

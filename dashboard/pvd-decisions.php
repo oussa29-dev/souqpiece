@@ -40,6 +40,7 @@
         }
         require_once('database.php');
         require_once('include/pvd_extraction.php');
+        require_once('include/import_classification.php');
         include('include/menu.php');
 
         // Couche 2 of PLAN_PVD_DESCRIPTION.md: arbitrate what couche 1's
@@ -47,7 +48,7 @@
         // automatic overwrite, always an explicit human choice per row
         // (or per lot, only where a safe default exists - see "rapide").
         $onglet = $_GET['onglet'] ?? 'rapide';
-        $onglets = ['rapide' => 'Marque - lot rapide', 'lent' => 'Marque - lot lent', 'completion' => 'Données manquantes'];
+        $onglets = ['rapide' => 'Marque - lot rapide', 'lent' => 'Marque - lot lent', 'completion' => 'Données manquantes', 'import' => 'Import : à vérifier'];
         if (!isset($onglets[$onglet])) {
             $onglet = 'rapide';
         }
@@ -136,7 +137,74 @@
             $message = "$n complétion(s) enregistrée(s).";
         }
 
+        if (isset($_POST['enregistrer_import'])) {
+            $n = 0;
+            $selectProduits = $pdo->prepare('SELECT id_produit FROM import_designation_produit WHERE id_import_designation = ?');
+            $selectPvdExistant = $pdo->prepare('SELECT COUNT(*) FROM pvd WHERE id_produit = ? AND id_voiture = ?');
+            $selectProduit = $pdo->prepare('SELECT libelle, marquepiece FROM produit WHERE id_produit = ?');
+            $selectModele = $pdo->prepare('SELECT modele FROM voiture WHERE id_voiture = ?');
+            $insertPvd = $pdo->prepare('INSERT INTO pvd (id_produit, id_voiture, description) VALUES (?, ?, ?)');
+            $updateDesignation = $pdo->prepare("UPDATE import_designation SET id_categorie = ?, id_sous_categorie = ?, statut = 'resolu', source = 'humain' WHERE id_import_designation = ?");
+            $deleteVehicules = $pdo->prepare('DELETE FROM import_designation_voiture WHERE id_import_designation = ?');
+            $insertVehicule = $pdo->prepare('INSERT INTO import_designation_voiture (id_import_designation, id_voiture) VALUES (?, ?)');
+
+            foreach ($_POST['designation'] ?? [] as $idImportDesignation => $champs) {
+                $idImportDesignation = (int)$idImportDesignation;
+                $idCategorie = ($champs['id_categorie'] ?? '') !== '' ? (int)$champs['id_categorie'] : null;
+                $idSousCategorie = ($champs['id_sous_categorie'] ?? '') !== '' ? (int)$champs['id_sous_categorie'] : null;
+                $idVoitures = array_map('intval', $champs['id_voitures'] ?? []);
+
+                if ($idCategorie === null && empty($idVoitures)) {
+                    // Rien de nouveau soumis pour cette ligne - on la laisse
+                    // telle quelle plutot que de la marquer resolue a tort.
+                    continue;
+                }
+
+                $selectProduits->execute([$idImportDesignation]);
+                $idsProduits = $selectProduits->fetchAll(PDO::FETCH_COLUMN);
+
+                if ($idCategorie !== null && !empty($idsProduits)) {
+                    // Ne touche que les produits encore non categorises (0) -
+                    // ne jamais ecraser une categorie deja fixee entre-temps
+                    // par un autre chemin (formulaire produit, etc.).
+                    $placeholders = implode(',', array_fill(0, count($idsProduits), '?'));
+                    $pdo->prepare("UPDATE produit SET id_categorie = ?, id_sous_categorie = ? WHERE id_produit IN ($placeholders) AND id_categorie = 0")
+                        ->execute(array_merge([$idCategorie, $idSousCategorie ?? 0], $idsProduits));
+                }
+
+                if (!empty($idVoitures)) {
+                    foreach ($idsProduits as $idProduit) {
+                        $selectProduit->execute([$idProduit]);
+                        $produit = $selectProduit->fetch(PDO::FETCH_ASSOC);
+                        if (!$produit) {
+                            continue;
+                        }
+                        foreach ($idVoitures as $idVoiture) {
+                            $selectPvdExistant->execute([$idProduit, $idVoiture]);
+                            if ((int)$selectPvdExistant->fetchColumn() > 0) {
+                                continue;
+                            }
+                            $selectModele->execute([$idVoiture]);
+                            $modeleVoiture = $selectModele->fetchColumn() ?: '';
+                            $description = pvd_composer_description($produit['libelle'], $modeleVoiture, null, null, $produit['marquepiece'], null, null);
+                            $insertPvd->execute([$idProduit, $idVoiture, $description]);
+                        }
+                    }
+                    $deleteVehicules->execute([$idImportDesignation]);
+                    foreach ($idVoitures as $idVoiture) {
+                        $insertVehicule->execute([$idImportDesignation, $idVoiture]);
+                    }
+                }
+
+                $updateDesignation->execute([$idCategorie, $idSousCategorie, $idImportDesignation]);
+                $n++;
+            }
+            $message = "$n désignation(s) confirmée(s), appliquées à tous les produits concernés.";
+        }
+
         // --- Comptes pour les onglets ---
+        $countImport = (int)$pdo->query("SELECT COUNT(*) FROM import_designation WHERE statut != 'resolu'")->fetchColumn();
+
         $countVide = (int)$pdo->query("SELECT COUNT(*) FROM pvd p JOIN produit pr ON pr.id_produit = p.id_produit WHERE p.marque_texte IS NOT NULL AND TRIM(pr.marquepiece) = ''")->fetchColumn();
 
         $conflits = $pdo->query("
@@ -183,6 +251,7 @@
                 <a class="rc-tab<?= $onglet === 'rapide' ? ' active' : '' ?>" href="?onglet=rapide">Marque - lot rapide (<b><?= $countRapide ?></b>)</a>
                 <a class="rc-tab<?= $onglet === 'lent' ? ' active' : '' ?>" href="?onglet=lent">Marque - lot lent (<b><?= $countLent ?></b>)</a>
                 <a class="rc-tab<?= $onglet === 'completion' ? ' active' : '' ?>" href="?onglet=completion">Données manquantes (<b><?= $countCompletion ?></b>)</a>
+                <a class="rc-tab<?= $onglet === 'import' ? ' active' : '' ?>" href="?onglet=import">Import : à vérifier (<b><?= $countImport ?></b>)</a>
             </div>
 
             <?php if ($onglet === 'rapide'): ?>
@@ -264,7 +333,7 @@
                     ?>
                 </form>
 
-            <?php else: ?>
+            <?php elseif ($onglet === 'completion'): ?>
                 <p class="rc-desc">Lignes sans année et/ou sans pays d'origine. Complète ce qui est connaissable ; laisse vide sinon.</p>
                 <form method="POST">
                     <?php
@@ -322,6 +391,84 @@
                     ?>
                         <div class="pd-save-bar">
                             <button type="submit" name="completer" class="rc-bulk-btn">Enregistrer cette page</button>
+                        </div>
+                    <?php
+                        }
+                    ?>
+                </form>
+
+            <?php else: ?>
+                <p class="rc-desc">Désignations d'import (dashboard/stock.php) que la classification automatique n'a pas pu résoudre avec confiance - voir db/import_designation.sql. Confirmer ou corriger ici s'applique à <b>tous</b> les produits déjà créés depuis ce texte, pas seulement aux futurs imports.</p>
+                <form method="POST">
+                    <?php
+                        $categoriesImport = import_lister_categories($pdo);
+                        $sousCategoriesImport = import_lister_sous_categories($pdo);
+                        $vehiculesImport = import_lister_vehicules($pdo);
+                        $categorieLibelleParId = [];
+                        foreach ($categoriesImport as $c) {
+                            $categorieLibelleParId[$c['id_categorie']] = $c['libelle'];
+                        }
+                        $vehiculeLibelleParId = [];
+                        foreach ($vehiculesImport as $v) {
+                            $vehiculeLibelleParId[$v['id_voiture']] = $v['marque'] . ' ' . $v['modele'];
+                        }
+
+                        $rowsImport = $pdo->prepare("SELECT * FROM import_designation WHERE statut != 'resolu' ORDER BY id_import_designation LIMIT ? OFFSET ?");
+                        $rowsImport->bindValue(1, $itemsPerPage, PDO::PARAM_INT);
+                        $rowsImport->bindValue(2, $offset, PDO::PARAM_INT);
+                        $rowsImport->execute();
+                        $listeImport = $rowsImport->fetchAll(PDO::FETCH_ASSOC);
+                        if (empty($listeImport)) {
+                            echo '<p>Rien à vérifier.</p>';
+                        }
+                        $selectVehiculesActuels = $pdo->prepare('SELECT id_voiture FROM import_designation_voiture WHERE id_import_designation = ?');
+                        $selectCountProduits = $pdo->prepare('SELECT COUNT(*) FROM import_designation_produit WHERE id_import_designation = ?');
+                        foreach ($listeImport as $r) {
+                            $selectVehiculesActuels->execute([$r['id_import_designation']]);
+                            $vehiculesActuels = array_map('intval', $selectVehiculesActuels->fetchAll(PDO::FETCH_COLUMN));
+                            $selectCountProduits->execute([$r['id_import_designation']]);
+                            $nbProduits = (int)$selectCountProduits->fetchColumn();
+                    ?>
+                        <div class="pd-row">
+                            <div class="pd-libelle"><?= htmlspecialchars($r['designation']) ?></div>
+                            <div class="pd-ref"><?= $nbProduits ?> produit(s) créé(s) avec ce texte<?= $r['id_categorie'] !== null ? ' — suggestion : ' . htmlspecialchars($categorieLibelleParId[$r['id_categorie']] ?? '?') : '' ?></div>
+                            <div class="pvd-structure" style="margin:0 0 6px;">
+                                <div class="pvd-champ">
+                                    <label>Catégorie</label>
+                                    <select name="designation[<?= $r['id_import_designation'] ?>][id_categorie]">
+                                        <option value="">Non renseigné</option>
+                                        <?php foreach ($categoriesImport as $c): ?>
+                                            <option value="<?= $c['id_categorie'] ?>" <?= (int)$r['id_categorie'] === (int)$c['id_categorie'] ? 'selected' : '' ?>><?= htmlspecialchars($c['libelle']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="pvd-champ">
+                                    <label>Sous-catégorie</label>
+                                    <select name="designation[<?= $r['id_import_designation'] ?>][id_sous_categorie]">
+                                        <option value="">Non renseigné</option>
+                                        <?php foreach ($sousCategoriesImport as $s): ?>
+                                            <option value="<?= $s['id_sous_categorie'] ?>" <?= (int)$r['id_sous_categorie'] === (int)$s['id_sous_categorie'] ? 'selected' : '' ?>><?= htmlspecialchars($categorieLibelleParId[$s['id_categorie']] ?? '?') ?> — <?= htmlspecialchars($s['libelle']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="pvd-champ pvd-notes">
+                                    <label>Véhicule(s) (Ctrl/Cmd+clic pour plusieurs, laisser vide si générique)<?php if (!empty($vehiculesActuels)): ?> — suggestion : <?= htmlspecialchars(implode(', ', array_map(fn($id) => $vehiculeLibelleParId[$id] ?? '?', $vehiculesActuels))) ?><?php endif; ?></label>
+                                    <select name="designation[<?= $r['id_import_designation'] ?>][id_voitures][]" multiple size="6">
+                                        <?php foreach ($vehiculesImport as $v): ?>
+                                            <option value="<?= $v['id_voiture'] ?>" <?= in_array((int)$v['id_voiture'], $vehiculesActuels, true) ? 'selected' : '' ?>><?= htmlspecialchars($v['marque'] . ' ' . $v['modele']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    <?php
+                        }
+                        if (!empty($listeImport)) {
+                            $totalPages = max(1, (int)ceil($countImport / $itemsPerPage));
+                            echo pd_pagination($page, $totalPages, $onglet);
+                    ?>
+                        <div class="pd-save-bar">
+                            <button type="submit" name="enregistrer_import" class="rc-bulk-btn">Enregistrer cette page</button>
                         </div>
                     <?php
                         }
