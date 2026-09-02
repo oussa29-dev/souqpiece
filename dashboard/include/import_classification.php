@@ -142,7 +142,12 @@ function import_classification_demander_llm(array $designationsNorm, array $cate
     }
 
     $config = require __DIR__ . '/../../ai/config.php';
-    if (empty($config['enabled'])) {
+    // 'enabled' est le coupe-circuit de l'assistant client (chat.php/widget.php)
+    // - ne doit jamais bloquer la classification d'import, qui est une
+    // fonctionnalite admin totalement independante (ex. l'assistant client
+    // peut rester desactive en production pendant que l'import fonctionne).
+    // Coupe-circuit dedie, optionnel : absent = active par defaut.
+    if (!($config['import_classification_enabled'] ?? true)) {
         return [];
     }
     // Provider dedie a la classification d'import, independant du provider
