@@ -67,8 +67,6 @@
                     marque.id_marque,
                     marque.libelle AS marque_libelle,
                     pvd.description,
-                    pvd.annee_debut,
-                    pvd.annee_fin,
                     pvd.marque_texte,
                     pvd.notes_libres
                 FROM voiture
@@ -129,18 +127,6 @@
                 $modelesNouveaux = array_filter($_POST['modele'] ?? [], fn($v) => !empty($v));
                 if (!$genericCoche && empty($modelesExistants) && empty($modelesNouveaux)) {
                     $erreurs[] = 'Sélectionnez au moins un véhicule, ou cochez "Produit générique".';
-                }
-                foreach (array_keys($modelesExistants) as $idVoitureCle) {
-                    if (trim($_POST['annee_debut_existing'][$idVoitureCle] ?? '') === '') {
-                        $erreurs[] = "L'année de début est obligatoire pour chaque véhicule sélectionné.";
-                        break;
-                    }
-                }
-                foreach (array_keys($modelesNouveaux) as $idx) {
-                    if (trim($_POST['annee_debut'][$idx] ?? '') === '') {
-                        $erreurs[] = "L'année de début est obligatoire pour chaque véhicule sélectionné.";
-                        break;
-                    }
                 }
             }
 
@@ -233,12 +219,6 @@
                                     </option>
                                 <?php endforeach; ?>
                             </select>
-
-                            <label for="annee_debut_existing_<?= $voiture['id_voiture'] ?>">Année début :</label>
-                            <input type="number" name="annee_debut_existing[<?= $voiture['id_voiture'] ?>]" id="annee_debut_existing_<?= $voiture['id_voiture'] ?>" min="1970" max="2026" value="<?= htmlspecialchars($voiture['annee_debut'] ?? '') ?>">
-
-                            <label for="annee_fin_existing_<?= $voiture['id_voiture'] ?>">Année fin :</label>
-                            <input type="number" name="annee_fin_existing[<?= $voiture['id_voiture'] ?>]" id="annee_fin_existing_<?= $voiture['id_voiture'] ?>" min="1970" max="2026" value="<?= htmlspecialchars($voiture['annee_fin'] ?? '') ?>">
                         </div>
                     <?php endforeach; ?>
 
@@ -269,12 +249,6 @@
                             <select name="modele[]" id="modeleSelect">
                                     <option value="modele">Sélectionner un modèle</option>
                             </select>
-
-                            <label for="annee_debut">Année début :</label>
-                            <input type="number" name="annee_debut[]" id="annee_debut" min="1970" max="2026">
-
-                            <label for="annee_fin">Année fin :</label>
-                            <input type="number" name="annee_fin[]" id="annee_fin" min="1970" max="2026">
                             <script>
 
                          document.getElementById('marqueSelect').addEventListener('change', function() {
@@ -710,24 +684,21 @@
                         // vehicle's own modele up by id rather than trusting
                         // a pre-loaded array, since the "new vehicle" row's
                         // id_voiture is only known once the form is submitted.
-                        function pvd_lire_champs_structures(PDO $pdo, array $post, string $suffixe, $cle, int $idVoiture, string $libelleProduit, string $marquepieceProduit, ?string $notesActuelles, ?string $paysProduit): array
+                        function pvd_lire_champs_structures(PDO $pdo, int $idVoiture, string $libelleProduit, string $marquepieceProduit, ?string $notesActuelles, ?string $paysProduit): array
                         {
-                            $modele = $pdo->prepare('SELECT modele FROM voiture WHERE id_voiture = ?');
-                            $modele->execute([$idVoiture]);
-                            $modeleLabel = trim($libelleProduit . ' ' . ($modele->fetchColumn() ?: ''));
+                            $voitureInfo = $pdo->prepare('SELECT modele, annee_debut, annee_fin FROM voiture WHERE id_voiture = ?');
+                            $voitureInfo->execute([$idVoiture]);
+                            $voitureRow = $voitureInfo->fetch(PDO::FETCH_ASSOC) ?: [];
+                            $modeleLabel = trim($libelleProduit . ' ' . ($voitureRow['modele'] ?? ''));
 
-                            // Suffix is only appended when non-empty: "existing"
-                            // rows are keyed annee_debut_existing[...], but
-                            // "new" rows use the plain annee_debut[...] name -
-                            // shared with the add-product form's fields, since
-                            // both forms are extended by the same addVoitureField()
-                            // JS function and must agree on field names.
-                            $suf = $suffixe !== '' ? '_' . $suffixe : '';
-                            $anneeDebut = $post['annee_debut' . $suf][$cle] ?? '';
-                            $anneeFin = $post['annee_fin' . $suf][$cle] ?? '';
+                            // Annee : plus saisie par piece - reprise
+                            // directement de la plage de production du
+                            // vehicule (voiture.annee_debut/annee_fin,
+                            // remplie via voiture_annee_import.php), jamais
+                            // redemandee dans le formulaire produit.
+                            $anneeDebut = isset($voitureRow['annee_debut']) ? (int)$voitureRow['annee_debut'] : null;
+                            $anneeFin = isset($voitureRow['annee_fin']) ? (int)$voitureRow['annee_fin'] : null;
 
-                            $anneeDebut = $anneeDebut === '' ? null : (int)$anneeDebut;
-                            $anneeFin = $anneeFin === '' ? null : (int)$anneeFin;
                             // Pays d'origine: single field at product level now
                             // (99.1% of multi-vehicle products already shared
                             // the same value across every one of their pvd
@@ -761,7 +732,7 @@
                             // that was there before this form existed.
                             $description = pvd_composer_description($modeleLabel, '', $anneeDebut, $anneeFin, $marque, $pays, $notesActuelles);
 
-                            return [$anneeDebut, $anneeFin, null, $pays, $notesActuelles, $description];
+                            return [null, $pays, $notesActuelles, $description];
                         }
 
                         $modeles_existing = $_POST['modele_existing'] ?? [];
@@ -776,14 +747,15 @@
                                 $sqlNotesActuelles->execute([$id, $id_voiture]);
                                 $notesActuelles = $sqlNotesActuelles->fetchColumn() ?: null;
 
-                                [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, 'existing', $id_voiture, (int)$new_id_voiture, $libelle, $marquepiece, $notesActuelles, $paysProduit);
-                                // pays_origine n'est plus ecrit ici : c'est desormais
-                                // produit.pays_origine (voir plus haut) qui porte
-                                // cette information - la colonne pvd.pays_origine
-                                // est gelee, jamais supprimee (meme convention que
-                                // pvd.description).
-                                $updateMod = $pdo->prepare("UPDATE pvd SET id_voiture = ?, description = ?, annee_debut = ?, annee_fin = ?, marque_texte = ?, notes_libres = ? WHERE id_produit = ? AND id_voiture = ?");
-                                $updateMod->execute([$new_id_voiture,$description,$anneeDebut,$anneeFin,$marqueTexte,$notes,$id,$id_voiture]);
+                                [$marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, (int)$new_id_voiture, $libelle, $marquepiece, $notesActuelles, $paysProduit);
+                                // pays_origine et annee_debut/annee_fin ne sont
+                                // plus ecrits ici : pays_origine vit desormais
+                                // sur produit, et l'annee sur voiture (plage de
+                                // production du vehicule) - ces colonnes pvd
+                                // sont gelees, jamais supprimees (meme
+                                // convention que pvd.description).
+                                $updateMod = $pdo->prepare("UPDATE pvd SET id_voiture = ?, description = ?, marque_texte = ?, notes_libres = ? WHERE id_produit = ? AND id_voiture = ?");
+                                $updateMod->execute([$new_id_voiture,$description,$marqueTexte,$notes,$id,$id_voiture]);
                                 }
                             }
                         }
@@ -791,10 +763,10 @@
                             foreach ($modeles_new as $index => $newMod) {
                                 if (!empty($newMod)) {
                                     // New row, nothing to preserve - null is correct here.
-                                    [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, '', $index, (int)$newMod, $libelle, $marquepiece, null, $paysProduit);
-                                    $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,annee_debut,annee_fin,marque_texte,notes_libres) VALUES (?, ?, ?, ?, ?, ?, ?)';
+                                    [$marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, (int)$newMod, $libelle, $marquepiece, null, $paysProduit);
+                                    $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,marque_texte,notes_libres) VALUES (?, ?, ?, ?, ?)';
                                     $insertMod = $pdo->prepare($sqlVoi);
-                                    $insertMod->execute([$id,$newMod,$description,$anneeDebut,$anneeFin,$marqueTexte,$notes]);
+                                    $insertMod->execute([$id,$newMod,$description,$marqueTexte,$notes]);
                                 }
                             }
                         }
@@ -846,12 +818,6 @@
             $modelesNouveaux = array_filter($_POST['modele'] ?? [], fn($v) => !empty($v));
             if (!$genericCoche && empty($modelesNouveaux)) {
                 $erreurs[] = 'Sélectionnez au moins un véhicule, ou cochez "Produit générique".';
-            }
-            foreach (array_keys($modelesNouveaux) as $idx) {
-                if (trim($_POST['annee_debut'][$idx] ?? '') === '') {
-                    $erreurs[] = "L'année de début est obligatoire pour chaque véhicule sélectionné.";
-                    break;
-                }
             }
         }
         $valLibelle = $_POST['libelle'] ?? '';
@@ -945,12 +911,6 @@
                         <option value="modele">Sélectionner un modèle</option>
 
                     </select>
-
-                        <label for="annee_debut">Année début :</label>
-                        <input type="number" name="annee_debut[]" id="annee_debut" min="1970" max="2026">
-
-                        <label for="annee_fin">Année fin :</label>
-                        <input type="number" name="annee_fin[]" id="annee_fin" min="1970" max="2026">
 
                         <script>
 
@@ -1221,17 +1181,17 @@
                         // shared because only one of the two top-level
                         // branches (edit vs add) of this file ever runs per
                         // request.
-                        function pvd_lire_champs_structures(PDO $pdo, array $post, $cle, int $idVoiture, string $libelleProduit, string $marquepieceProduit, ?string $paysProduit): array
+                        function pvd_lire_champs_structures(PDO $pdo, int $idVoiture, string $libelleProduit, string $marquepieceProduit, ?string $paysProduit): array
                         {
-                            $modele = $pdo->prepare('SELECT modele FROM voiture WHERE id_voiture = ?');
-                            $modele->execute([$idVoiture]);
-                            $modeleLabel = trim($libelleProduit . ' ' . ($modele->fetchColumn() ?: ''));
+                            $voitureInfo = $pdo->prepare('SELECT modele, annee_debut, annee_fin FROM voiture WHERE id_voiture = ?');
+                            $voitureInfo->execute([$idVoiture]);
+                            $voitureRow = $voitureInfo->fetch(PDO::FETCH_ASSOC) ?: [];
+                            $modeleLabel = trim($libelleProduit . ' ' . ($voitureRow['modele'] ?? ''));
 
-                            $anneeDebut = $post['annee_debut'][$cle] ?? '';
-                            $anneeFin = $post['annee_fin'][$cle] ?? '';
-
-                            $anneeDebut = $anneeDebut === '' ? null : (int)$anneeDebut;
-                            $anneeFin = $anneeFin === '' ? null : (int)$anneeFin;
+                            // Annee : plus saisie par piece - reprise
+                            // directement de voiture.annee_debut/annee_fin.
+                            $anneeDebut = isset($voitureRow['annee_debut']) ? (int)$voitureRow['annee_debut'] : null;
+                            $anneeFin = isset($voitureRow['annee_fin']) ? (int)$voitureRow['annee_fin'] : null;
                             $pays = $paysProduit;
 
                             // No per-vehicle marque field (see the modifier
@@ -1248,7 +1208,7 @@
                             // handler above for why that matters more there).
                             $description = pvd_composer_description($modeleLabel, '', $anneeDebut, $anneeFin, $marque, $pays, null);
 
-                            return [$anneeDebut, $anneeFin, null, $pays, null, $description];
+                            return [null, $pays, null, $description];
                         }
 
                         if (isset($_POST['modele']) && is_array($_POST['modele'])) {
@@ -1256,12 +1216,13 @@
                                 if (empty($modele)) {
                                     continue;
                                 }
-                                [$anneeDebut, $anneeFin, $marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, $_POST, $index, (int)$modele, $libelle, $marquepiece, $paysProduit);
-                                // pays_origine n'est plus ecrit ici : voir le
-                                // commentaire equivalent dans la branche modifier.
-                                $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,annee_debut,annee_fin,marque_texte,notes_libres) VALUES (?, ?, ?, ?, ?, ?, ?)';
+                                [$marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, (int)$modele, $libelle, $marquepiece, $paysProduit);
+                                // pays_origine et annee_debut/annee_fin ne sont
+                                // plus ecrits ici : voir le commentaire
+                                // equivalent dans la branche modifier.
+                                $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,marque_texte,notes_libres) VALUES (?, ?, ?, ?, ?)';
                                 $stmtVoi = $pdo->prepare($sqlVoi);
-                                $stmtVoi->execute([$id_produit,$modele,$description,$anneeDebut,$anneeFin,$marqueTexte,$notes]);
+                                $stmtVoi->execute([$id_produit,$modele,$description,$marqueTexte,$notes]);
                             }
                         //    header('Location: produit.php');
 
@@ -1405,38 +1366,10 @@
             xhr.send();
         });
 
-        // Année début/fin sur la meme ligne que marque/modele - meme groupe
-        // (voiture-group), pas une zone separee ailleurs sur la page.
-        const anneeDebutLabel = document.createElement('label');
-        anneeDebutLabel.setAttribute('for', 'annee_debut' + voitureCount);
-        anneeDebutLabel.textContent = 'Année début :';
-
-        const anneeDebutInput = document.createElement('input');
-        anneeDebutInput.type = 'number';
-        anneeDebutInput.name = 'annee_debut[]';
-        anneeDebutInput.id = 'annee_debut' + voitureCount;
-        anneeDebutInput.min = '1970';
-        anneeDebutInput.max = '2026';
-
-        const anneeFinLabel = document.createElement('label');
-        anneeFinLabel.setAttribute('for', 'annee_fin' + voitureCount);
-        anneeFinLabel.textContent = 'Année fin :';
-
-        const anneeFinInput = document.createElement('input');
-        anneeFinInput.type = 'number';
-        anneeFinInput.name = 'annee_fin[]';
-        anneeFinInput.id = 'annee_fin' + voitureCount;
-        anneeFinInput.min = '1970';
-        anneeFinInput.max = '2026';
-
         // Ajoute les éléments au conteneur div
         voitureDiv.appendChild(label);
         voitureDiv.appendChild(marqueSelect);
         voitureDiv.appendChild(modeleSelect);
-        voitureDiv.appendChild(anneeDebutLabel);
-        voitureDiv.appendChild(anneeDebutInput);
-        voitureDiv.appendChild(anneeFinLabel);
-        voitureDiv.appendChild(anneeFinInput);
 
         // Ajoute le conteneur div au conteneur principal
         container.appendChild(voitureDiv);
