@@ -354,15 +354,41 @@
                         $stmt = $pdo->prepare($sql);
                         $stmt->execute([$reference]);
                         $existingRefs = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                        
+
+                        // Deduplique par produit (une meme reference textuelle
+                        // peut avoir plusieurs lignes dans `reference` pointant
+                        // vers le meme produit).
+                        $produitsDistincts = [];
+                        foreach ($existingRefs as $existing) {
+                            $produitsDistincts[$existing['id_produit']] = $existing['marquepiece'];
+                        }
+
                         $productExists = false;
                         $matchingProductId = null;
-                        
-                        foreach ($existingRefs as $existing) {
-                            if (trim($existing['marquepiece']) == trim($marque)) {
-                                $productExists = true;
-                                $matchingProductId = $existing['id_produit'];
-                                break;
+
+                        if (count($produitsDistincts) === 1) {
+                            // Reference sans ambiguite dans le catalogue : on
+                            // identifie le produit par la reference seule, sans
+                            // exiger que la marque corresponde. Une marque
+                            // corrigee manuellement (page Decisions PVD) ne doit
+                            // jamais faire perdre le lien avec un import futur
+                            // venant d'un logiciel externe qui ne connait pas
+                            // cette correction - verifie : sans ce cas special,
+                            // ca creait un produit en double a chaque reimport.
+                            $productExists = true;
+                            $matchingProductId = array_key_first($produitsDistincts);
+                        } else {
+                            // Plusieurs produits distincts partagent reellement
+                            // cette reference (cas legitime, mesure : pieces
+                            // compatibles de marques differentes partageant un
+                            // meme numero) - la marque redevient necessaire pour
+                            // savoir lequel des deux mettre a jour.
+                            foreach ($produitsDistincts as $idProduit => $marquepiece) {
+                                if (trim($marquepiece) == trim($marque)) {
+                                    $productExists = true;
+                                    $matchingProductId = $idProduit;
+                                    break;
+                                }
                             }
                         }
                         
@@ -427,12 +453,15 @@
                                     import_designation_tracer_produit($pdo, $classification['id_import_designation'], (int)$newProductId);
 
                                     if ($classificationResolue && !empty($classification['id_voitures'])) {
-                                        $sqlModele = $pdo->prepare('SELECT modele FROM voiture WHERE id_voiture = ?');
+                                        $sqlModele = $pdo->prepare('SELECT modele, annee_debut, annee_fin FROM voiture WHERE id_voiture = ?');
                                         $insertPvd = $pdo->prepare('INSERT INTO pvd (id_produit, id_voiture, description) VALUES (?, ?, ?)');
                                         foreach ($classification['id_voitures'] as $idVoiture) {
                                             $sqlModele->execute([$idVoiture]);
-                                            $modeleVoiture = $sqlModele->fetchColumn() ?: '';
-                                            $description = pvd_composer_description($libelle, $modeleVoiture, null, null, $marque, null, null);
+                                            $voitureRow = $sqlModele->fetch(PDO::FETCH_ASSOC) ?: [];
+                                            $modeleVoiture = $voitureRow['modele'] ?? '';
+                                            $anneeDebut = isset($voitureRow['annee_debut']) ? (int)$voitureRow['annee_debut'] : null;
+                                            $anneeFin = isset($voitureRow['annee_fin']) ? (int)$voitureRow['annee_fin'] : null;
+                                            $description = pvd_composer_description($libelle, $modeleVoiture, $anneeDebut, $anneeFin, $marque, null, null);
                                             $insertPvd->execute([$newProductId, $idVoiture, $description]);
                                         }
                                     }
