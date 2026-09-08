@@ -441,23 +441,19 @@
     
                     </script>
     
-                    <select name="stock" id="">
-    
-                        <?php if($produit['stock'] == 1){ ?>
-    
-                        <option value="1" selected>Disponible</option>
-    
-                        <option value="0">Non disponible</option>
-    
-                        <?php }else{ ?>
-    
-                            <option value="1" >Disponible</option>
-    
-                            <option value="0" selected>Non disponible</option>
-    
-                            <?php } ?>
-    
-                    </select><br>
+                    <?php
+                        // "stock" (disponible/non disponible) n'est plus
+                        // saisi directement - il est desormais toujours
+                        // derive de la quantite (quantite > 0 => disponible),
+                        // meme regle que les imports Excel de stock.php, pour
+                        // que les deux colonnes restent alignees quel que
+                        // soit le chemin d'ecriture. Un produit jamais
+                        // touche par un import (quantite NULL) reprend son
+                        // etat "disponible" actuel comme valeur de depart.
+                        $quantiteInitiale = $produit["quantite"] !== null ? (int)$produit["quantite"] : ($produit["stock"] == 1 ? 1 : 0);
+                    ?>
+                    <label for="quantite">Quantité en stock</label>
+                    <input type="number" name="quantite" id="quantite" min="0" value="<?= $quantiteInitiale ?>"><br>
     
                     <!--========img================-->
     
@@ -500,7 +496,13 @@
                     $prix = $_POST['prix'];
                     $categorie = $_POST['categorie'];
                     $sous = $_POST['sous_categorie'];
-                    $stock = $_POST['stock'];
+                    // stock n'est plus saisi directement - toujours derive
+                    // de la quantite, meme regle que les imports Excel de
+                    // stock.php (quantite > 0 => disponible), pour que les
+                    // deux colonnes restent alignees quel que soit le
+                    // chemin d'ecriture.
+                    $quantite = isset($_POST['quantite']) && $_POST['quantite'] !== '' ? (int)$_POST['quantite'] : 0;
+                    $stock = $quantite > 0 ? 1 : 0;
                     $ref = $_POST['ref'];
                     $paysAutreProduit = trim($_POST['pays_origine_produit_autre'] ?? '');
                     $paysProduit = $paysAutreProduit !== ''
@@ -560,8 +562,8 @@
 
                     if(!empty($libelle) && !empty($prix)){
 
-                        $sqlModifier = 'UPDATE produit SET trie=? ,libelle=?,marquepiece=?,prix=?,id_categorie=?,id_sous_categorie=?,stock=?,pays_origine=?';
-                        $params = [$trie,$libelle,$marquepiece,$prix,$categorie,$sous,$stock,$paysProduit];
+                        $sqlModifier = 'UPDATE produit SET trie=? ,libelle=?,marquepiece=?,prix=?,id_categorie=?,id_sous_categorie=?,stock=?,quantite=?,pays_origine=?';
+                        $params = [$trie,$libelle,$marquepiece,$prix,$categorie,$sous,$stock,$quantite,$paysProduit];
                         // Mise à jour des images additionnelles si elles sont renseignées
 
                         if ($updateImg1) {
@@ -1056,13 +1058,8 @@
 
                 </script>
 
-                <select name="stock" id="">
-
-                    <option value="1">Disponible</option>
-
-                    <option value="0">Non disponible</option>
-
-                </select><br>
+                <label for="quantite">Quantité en stock</label>
+                <input type="number" name="quantite" id="quantite" min="0" value="0"><br>
 
                 <!--========img================-->
 
@@ -1124,7 +1121,13 @@
                     $prix = $_POST['prix'];
                     $categorie = $_POST['categorie'];
                     $sous = $_POST['sous_categorie'];
-                    $stock = $_POST['stock'];
+                    // stock n'est plus saisi directement - toujours derive
+                    // de la quantite, meme regle que les imports Excel de
+                    // stock.php (quantite > 0 => disponible), pour que les
+                    // deux colonnes restent alignees quel que soit le
+                    // chemin d'ecriture.
+                    $quantite = isset($_POST['quantite']) && $_POST['quantite'] !== '' ? (int)$_POST['quantite'] : 0;
+                    $stock = $quantite > 0 ? 1 : 0;
                     $paysAutreProduit = trim($_POST['pays_origine_produit_autre'] ?? '');
                     $paysProduit = $paysAutreProduit !== ''
                         ? strtoupper($paysAutreProduit)
@@ -1155,9 +1158,9 @@
                     }
                     if (!empty($libelle) && !empty($prix)) {
                         // Prepare the SQL statement dynamically based on available images
-                        $columns = 'trie,id_categorie, id_sous_categorie, libelle, marquepiece, prix, stock, pays_origine';
-                        $placeholders = '?, ?, ?, ?, ?, ?, ?, ?';
-                        $params = [$trie, $categorie, $sous, $libelle, $marquepiece, $prix, $stock, $paysProduit];
+                        $columns = 'trie,id_categorie, id_sous_categorie, libelle, marquepiece, prix, stock, quantite, pays_origine';
+                        $placeholders = '?, ?, ?, ?, ?, ?, ?, ?, ?';
+                        $params = [$trie, $categorie, $sous, $libelle, $marquepiece, $prix, $stock, $quantite, $paysProduit];
 
                         foreach ($images as $column => $image) {
 
