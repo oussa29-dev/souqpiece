@@ -66,6 +66,12 @@
                 'count' => "SELECT COUNT(*) FROM produit WHERE (img1 IS NULL OR img1 = '') AND stock = 1",
                 'list'  => "SELECT * FROM produit WHERE (img1 IS NULL OR img1 = '') AND stock = 1 ORDER BY id_produit DESC LIMIT ? OFFSET ?",
             ],
+            'sans_reference' => [
+                'label' => 'Sans référence',
+                'desc'  => "Produits disponibles sans aucune ligne dans `reference` : un import stock (voir dashboard/stock.php) ne peut jamais les retrouver dans le fichier du fournisseur, ils sont donc exclus de la réconciliation automatique et doivent être vérifiés à la main - ajouter la référence manquante, ou marquer non disponible si l'article n'existe plus.",
+                'count' => "SELECT COUNT(*) FROM produit p WHERE p.stock = 1 AND NOT EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit)",
+                'list'  => "SELECT p.* FROM produit p WHERE p.stock = 1 AND NOT EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit) ORDER BY p.id_produit DESC LIMIT ? OFFSET ?",
+            ],
         ];
 
         $vue = isset($_GET['vue']) && isset($vues[$_GET['vue']]) ? $_GET['vue'] : 'sans_vehicule';
