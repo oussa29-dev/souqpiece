@@ -12,7 +12,7 @@
     <script src="https://unpkg.com/sweetalert/dist/sweetalert.min.js"></script>
 </head>
 <body>
-    <?php 
+    <?php
         session_start();
         if(!isset( $_SESSION['utilisateur'])){
             header('location:connexion.php');
@@ -22,7 +22,7 @@
         include('include/menu.php');
      ?>
 
-    
+
     <div class="site">
 
         <div class="barre">Stock des produits</div>
@@ -31,493 +31,635 @@
         require '../vendor/autoload.php';
         require_once 'include/import_classification.php';
         require_once 'include/pvd_extraction.php';
+        require_once 'include/import_format.php';
 
         use PhpOffice\PhpSpreadsheet\IOFactory;
-        
-        // if (isset($_POST['modifier'])) {
-        //     if (isset($_FILES['fichier']) && $_FILES['fichier']['error'] == UPLOAD_ERR_OK) {
-        //         $fichier_tmp = $_FILES['fichier']['tmp_name'];
-        //         try {
-        //             // Charger le fichier Excel
-        //             $spreadsheet = IOFactory::load($fichier_tmp);
-        //             $sheet = $spreadsheet->getActiveSheet();
-                    
-        //             // Initialisation des compteurs
-        //             $newProductsCount = 0;
-        //             $updatedProductsCount = 0;
-        //             $errors = [];
-                    
-        //             // Démarrer une transaction
-        //             $pdo->beginTransaction();
-        
-        //             foreach ($sheet->getRowIterator(2) as $row) {
-        //                 // Récupération des données du fichier Excel
-        //                 $reference = trim($sheet->getCell('A' . $row->getRowIndex())->getValue());
-        //                 $libelle = trim($sheet->getCell('B' . $row->getRowIndex())->getValue());
-        //                 $marque = trim($sheet->getCell('C' . $row->getRowIndex())->getValue());
-        //                 $quant = (int)$sheet->getCell('D' . $row->getRowIndex())->getValue();
-        //                 $prix = (float)$sheet->getCell('G' . $row->getRowIndex())->getValue();
-        //                 $stock = ($quant > 0) ? 1 : 0;
-     
-        //                 // Validation des données obligatoires
-        //                 if (empty($reference)) {
-        //                     $errors[] = "Ligne {$row->getRowIndex()}: Référence manquante";
-        //                     continue;
-        //                 }
-                        
-        //                 if (empty($libelle)) {
-        //                     $errors[] = "Ligne {$row->getRowIndex()}: Libellé manquant pour la référence $reference";
-        //                     continue;
-        //                 }
-                        
-        //                 // Vérifier si la référence existe déjà
-        //                 $sql = "SELECT r.id_reference, r.id_produit, p.marquepiece 
-        //                         FROM reference r 
-        //                         JOIN produit p ON r.id_produit = p.id_produit 
-        //                         WHERE TRIM(r.reference) = ?";
-        //                 $stmt = $pdo->prepare($sql);
-        //                 $stmt->execute([$reference]);
-        //                 $existingRefs = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                        
-        //                 $productExists = false;
-        //                 $matchingProductId = null;
-                        
-        //                 foreach ($existingRefs as $existing) {
-        //                     if ($existing['marquepiece'] == $marque) {
-        //                         $productExists = true;
-        //                         $matchingProductId = $existing['id_produit'];
-        //                         break;
-        //                     }
-        //                 }
-                        
-        //                 if ($productExists) {
-        //                     // Mise à jour du produit existant
-        //                     $updateSql = "UPDATE produit 
-        //                                  SET prix = ?, stock = ? 
-        //                                  WHERE id_produit = ?";
-        //                     $updateStmt = $pdo->prepare($updateSql);
-        //                     $updateStmt->execute([$prix, $stock, $matchingProductId]);
-        //                     $updatedProductsCount++;
-        //                 } else {
-        //                     // Insertion d'un nouveau produit avec gestion des erreurs
-        //                     $insertProductSql = "INSERT INTO produit (libelle, marquepiece, prix, stock) VALUES (?, ?, ?, ?)";
-        //                     $insertProductStmt = $pdo->prepare($insertProductSql);
-                            
-        //                     try {
-        //                         // Exécuter l'insertion produit
-        //                         $insertProductStmt->execute([$libelle, $marque, $prix, $stock]);
-        //                         $newProductId = $pdo->lastInsertId();
-                                
-        //                         // Vérifier que l'ID est valide
-        //                         if ($newProductId <= 0) {
-        //                             throw new Exception("Échec de l'insertion du produit - ID invalide");
-        //                         }
-                                
-        //                         // Insertion de la référence
-        //                         $insertRefSql = "INSERT INTO reference (reference, id_produit) VALUES (?, ?)";
-        //                         $insertRefStmt = $pdo->prepare($insertRefSql);
-        //                         $insertRefStmt->execute([$reference, $newProductId]);
-                                
-        //                         // Vérifier que la référence a bien été insérée
-        //                         if ($insertRefStmt->rowCount() === 0) {
-        //                             throw new Exception("Échec de l'insertion de la référence");
-        //                         }
-                                
-        //                         $newProductsCount++;
-        //                     } catch (Exception $e) {
-        //                         $errors[] = "Ligne {$row->getRowIndex()}: " . $e->getMessage();
-        //                         // Annuler cette insertion mais continuer avec les autres lignes
-        //                         $pdo->rollBack();
-        //                         $pdo->beginTransaction(); // Redémarrer la transaction pour les lignes suivantes
-        //                         continue;
-        //                     }
-        //                 }
-        //             }
-                    
-        //             // Valider la transaction
-        //             $pdo->commit();
-                    
-        //             // Affichage des résultats
-        //             echo "<div class='result-message'>";
-        //             if ($newProductsCount > 0) {
-        //                 echo "<p style='color: green;'>$newProductsCount nouveaux produits ajoutés.</p>";
-        //             }
-        //             if ($updatedProductsCount > 0) {
-        //                 echo "<p style='color: green;'>$updatedProductsCount produits mis à jour.</p>";
-        //             }
-        //             if (empty($errors)) {
-        //                 echo "<p style='color: green;'>Import terminé avec succès.</p>";
-        //             } else {
-        //                 echo "<p style='color: orange;'>Import terminé avec quelques erreurs :</p>";
-        //                 echo "<ul>";
-        //                 foreach ($errors as $error) {
-        //                     echo "<li>$error</li>";
-        //                 }
-        //                 echo "</ul>";
-        //             }
-        //             echo "</div>";
-                    
-        //         } catch (Exception $e) {
-        //             // Annuler la transaction en cas d'erreur
-        //             $pdo->rollBack();
-        //             echo "<p style='color: red;'>Erreur lors de l'import : " . $e->getMessage() . "</p>";
-        //         }
-        //     } else {
-        //         echo "<p style='color: red;'>Veuillez télécharger un fichier valide.</p>";
-        //     }
-        // }
-        
-        if (isset($_POST['modifier'])) {
+
+        // Barre de progression : pas d'AJAX/websocket dans ce projet, donc
+        // on desactive la bufferisation et on pousse des <script> au fur
+        // et a mesure - chacun s'execute des son arrivee dans le
+        // navigateur et met a jour la meme barre en place. Marche sur de
+        // l'hebergement mutualise classique, aucune dependance en plus.
+        function import_demarrer_affichage(): void
+        {
+            while (ob_get_level() > 0) {
+                @ob_end_flush();
+            }
+            @ini_set('zlib.output_compression', '0');
+            @ini_set('implicit_flush', '1');
+            ob_implicit_flush(true);
+
+            echo '<div style="margin:14px 1px;max-width:520px;">'
+                . '<div style="background:#eee;border-radius:6px;height:20px;overflow:hidden;">'
+                . '<div id="import-bar" style="background:rgb(24,185,24);height:100%;width:0%;transition:width .3s;"></div>'
+                . '</div>'
+                . '<p id="import-texte" style="margin:6px 0;color:#555;font-size:14px;">Préparation...</p>'
+                . '</div>';
+            flush();
+        }
+
+        function import_progress(string $texte, float $pourcentage): void
+        {
+            // Repousse la limite d'execution a chaque appel plutot que de
+            // fixer une seule valeur globale au depart - un gros fichier
+            // avec beaucoup de designations jamais vues peut depasser
+            // n'importe quelle limite fixe (deja observe : 600s depassees
+            // en pleine classification). Tant que l'ecart entre deux
+            // appels reste sous 600s, le script peut tourner aussi
+            // longtemps que necessaire.
+            set_time_limit(600);
+            $pourcentage = max(0, min(100, $pourcentage));
+            echo '<script>'
+                . 'document.getElementById("import-bar").style.width="' . $pourcentage . '%";'
+                . 'document.getElementById("import-texte").innerText=' . json_encode($texte) . ';'
+                . '</script>' . "\n";
+            flush();
+        }
+
+        function import_eta(float $debut, int $fait, int $total): string
+        {
+            if ($fait === 0) {
+                return '';
+            }
+            $ecoule = microtime(true) - $debut;
+            $restant = ($ecoule / $fait) * ($total - $fait);
+            if ($restant < 60) {
+                return ' - environ ' . (int)round($restant) . 's restantes';
+            }
+            return ' - environ ' . (int)round($restant / 60) . ' min restantes';
+        }
+
+        // Meme bareme de marge que la version precedente du code,
+        // reutilise a l'identique pour le stock complet et pour les
+        // nouveaux produits crees via les achats du jour (voir remarque
+        // dans le rapport de session : ce bareme s'applique au prix
+        // trouve dans la colonne "PV Gros"/"P.Vente Moyen" du fichier,
+        // pas au prix d'achat).
+        function stock_appliquer_marge(float $prixInitial): float
+        {
+            $prix = $prixInitial;
+            if ($prixInitial > 0 && $prixInitial <= 2000) {
+                $prix *= 1.5;
+            }
+            if ($prixInitial > 2000 && $prixInitial <= 4000) {
+                $prix *= 1.4;
+            }
+            if ($prixInitial > 4000 && $prixInitial <= 6000) {
+                $prix *= 1.35;
+            }
+            if ($prixInitial > 6000 && $prixInitial <= 8000) {
+                $prix *= 1.3;
+            }
+            if ($prixInitial > 8000 && $prixInitial <= 15000) {
+                $prix *= 1.25;
+            }
+            if ($prixInitial > 15000 && $prixInitial <= 30000) {
+                $prix *= 1.2;
+            }
+            if ($prixInitial > 30000 && $prixInitial <= 50000) {
+                $prix *= 1.15;
+            }
+            if ($prixInitial > 50000 && $prixInitial <= 60000) {
+                $prix *= 1.12;
+            }
+            if ($prix > 60000) {
+                $prix *= 1.11;
+            }
+            return $prix;
+        }
+
+        // Identifie le produit correspondant a une reference+marque -
+        // dedupe par produit puis ne retombe sur la marque que si la
+        // reference est reellement partagee par plusieurs produits
+        // distincts (voir commit "Fix duplicate product creation on
+        // marque-corrected reimports").
+        function stock_trouver_produit(PDO $pdo, string $reference, string $marque): ?int
+        {
+            $sql = "SELECT r.id_produit, p.marquepiece
+                    FROM reference r
+                    JOIN produit p ON r.id_produit = p.id_produit
+                    WHERE TRIM(r.reference) = ?";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([$reference]);
+            $existingRefs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $produitsDistincts = [];
+            foreach ($existingRefs as $existing) {
+                $produitsDistincts[$existing['id_produit']] = $existing['marquepiece'];
+            }
+
+            if (count($produitsDistincts) === 1) {
+                return (int)array_key_first($produitsDistincts);
+            }
+            if (count($produitsDistincts) > 1) {
+                foreach ($produitsDistincts as $idProduit => $marquepiece) {
+                    if (trim($marquepiece) == trim($marque)) {
+                        return (int)$idProduit;
+                    }
+                }
+            }
+            return null;
+        }
+
+        function stock_afficher_rapport(int $crees, int $maj, array $erreurs, string $titreErreurs = 'Import terminé avec quelques erreurs :'): void
+        {
+            echo "<div class='result-message'>";
+            if ($crees > 0) {
+                echo "<p style='color: green;'>$crees nouveaux produits ajoutés.</p>";
+            }
+            if ($maj > 0) {
+                echo "<p style='color: green;'>$maj produits mis à jour.</p>";
+            }
+            if (empty($erreurs)) {
+                echo "<p style='color: green;'>Import terminé avec succès.</p>";
+            } else {
+                echo "<p style='color: orange;'>$titreErreurs</p><ul>";
+                foreach (array_slice($erreurs, 0, 300) as $erreur) {
+                    echo "<li>" . htmlspecialchars($erreur) . "</li>";
+                }
+                if (count($erreurs) > 300) {
+                    echo "<li>... et " . (count($erreurs) - 300) . " autre(s), non affichée(s).</li>";
+                }
+                echo "</ul>";
+            }
+            echo "</div>";
+        }
+
+        // ---------------------------------------------------------------
+        // Import "Stock complet" : cree/met a jour les produits, classe les
+        // nouvelles designations par LLM, puis reconcilie - tout produit
+        // reference absent du fichier est marque hors stock (Phase 2 du
+        // plan). C'est le seul des 3 boutons qui declenche la reconciliation.
+        // ---------------------------------------------------------------
+        function stock_importer_stock_complet(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): void
+        {
+            $designationsSheet = [];
+            for ($ligne = $premiereLigne; $ligne <= $derniereLigne; $ligne++) {
+                $texte = trim((string)(import_format_lire($sheet, $descripteur, $ligne, 'DESIGNATION') ?? ''));
+                if ($texte !== '') {
+                    $designationsSheet[$texte] = true;
+                }
+            }
+
+            import_progress('Classification des désignations (0/' . count($designationsSheet) . ')...', 0);
+            $debutClassification = microtime(true);
+            $classifications = import_classification_resoudre($pdo, array_keys($designationsSheet), function (int $lotsFait, int $lotsTotal) use ($debutClassification) {
+                $pourcentage = $lotsTotal > 0 ? ($lotsFait / $lotsTotal) * 45 : 45;
+                import_progress(
+                    "Classification des désignations, lot $lotsFait/$lotsTotal" . import_eta($debutClassification, $lotsFait, $lotsTotal),
+                    $pourcentage
+                );
+            });
+            import_progress('Classification terminée. Import des produits...', 45);
+
+            $newProductsCount = 0;
+            $updatedProductsCount = 0;
+            $errors = [];
+            $referencesVues = [];
+
+            $pdo->beginTransaction();
+
+            $totalLignes = $derniereLigne - $premiereLigne + 1;
+            $ligneCourante = 0;
+            $debutImport = microtime(true);
+
+            for ($rowIndex = $premiereLigne; $rowIndex <= $derniereLigne; $rowIndex++) {
+                $ligneCourante++;
+                if ($ligneCourante % 200 === 0 || $ligneCourante === $totalLignes) {
+                    import_progress(
+                        "Import des produits, ligne $ligneCourante/$totalLignes" . import_eta($debutImport, $ligneCourante, $totalLignes),
+                        45 + ($totalLignes > 0 ? ($ligneCourante / $totalLignes) * 45 : 45)
+                    );
+                }
+
+                $reference = trim((string)(import_format_lire($sheet, $descripteur, $rowIndex, 'REFERENCE') ?? ''));
+                $libelle = trim((string)(import_format_lire($sheet, $descripteur, $rowIndex, 'DESIGNATION') ?? ''));
+                $marque = trim((string)(import_format_lire($sheet, $descripteur, $rowIndex, 'MARQUE') ?? ''));
+                $quant = (int)import_format_nombre(import_format_lire($sheet, $descripteur, $rowIndex, 'QUANT'));
+                $prixAchatVal = import_format_nombre(import_format_lire($sheet, $descripteur, $rowIndex, 'PRIX_ACHAT'));
+                $prixInitial = import_format_nombre(import_format_lire($sheet, $descripteur, $rowIndex, 'PV_GROS'));
+
+                if ($reference === '' && $libelle === '') {
+                    // Ligne entierement vide - dispersees dans le fichier
+                    // reel (509 mesurees), pas seulement en fin de fichier.
+                    continue;
+                }
+                if ($reference === '') {
+                    if ($prixAchatVal <= 0 && $prixInitial <= 0) {
+                        // Ligne de continuation (fragment de designation
+                        // sans reference ni prix, ex. "4WD AV") - 74
+                        // mesurees dans le fichier reel, pas une vraie
+                        // erreur, juste un residu de mise en forme du
+                        // fichier source.
+                        continue;
+                    }
+                    $errors[] = "Ligne $rowIndex: Référence manquante";
+                    continue;
+                }
+                if ($libelle === '') {
+                    $errors[] = "Ligne $rowIndex: Libellé manquant pour la référence $reference";
+                    continue;
+                }
+
+                $referencesVues[$reference] = true;
+
+                if ($quant < 0) {
+                    $errors[] = "Ligne $rowIndex: quantité négative ($quant) pour $reference, ramenée à 0";
+                    $quant = 0;
+                }
+
+                $prix = stock_appliquer_marge($prixInitial);
+                $stock = ($quant > 0) ? 1 : 0;
+
+                $matchingProductId = stock_trouver_produit($pdo, $reference, $marque);
+
+                if ($matchingProductId !== null) {
+                    $updateStmt = $pdo->prepare('UPDATE produit SET prix = ?, stock = ?, quantite = ? WHERE id_produit = ?');
+                    $updateStmt->execute([$prix, $stock, $quant, $matchingProductId]);
+                    $updatedProductsCount++;
+
+                    // Trace aussi les produits deja existants vers leur
+                    // designation (pas seulement les nouveaux crees
+                    // ci-dessous) - sinon une correction humaine plus tard
+                    // sur la page de revision ne peut jamais atteindre les
+                    // produits qui existaient deja avant cet import (98%
+                    // des lignes reelles mesurees).
+                    $classificationExistant = $classifications[$libelle] ?? null;
+                    if ($classificationExistant !== null) {
+                        import_designation_tracer_produit($pdo, $classificationExistant['id_import_designation'], $matchingProductId);
+                    }
+                } else {
+                    try {
+                        $classification = $classifications[$libelle] ?? null;
+                        $classificationResolue = $classification !== null && $classification['statut'] === 'resolu';
+                        $idCategorie = $classificationResolue ? $classification['id_categorie'] : 0;
+                        $idSousCategorie = $classificationResolue ? $classification['id_sous_categorie'] : 0;
+
+                        $insertProductStmt = $pdo->prepare('INSERT INTO produit (libelle, marquepiece, prix, stock, quantite, id_categorie, id_sous_categorie) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                        $insertProductStmt->execute([$libelle, $marque, $prix, $stock, $quant, $idCategorie, $idSousCategorie]);
+                        $newProductId = $pdo->lastInsertId();
+
+                        if ($newProductId <= 0) {
+                            throw new Exception("Échec de l'insertion du produit - ID invalide");
+                        }
+
+                        $insertRefStmt = $pdo->prepare('INSERT INTO reference (reference, id_produit) VALUES (?, ?)');
+                        $insertRefStmt->execute([$reference, $newProductId]);
+
+                        if ($insertRefStmt->rowCount() === 0) {
+                            throw new Exception("Échec de l'insertion de la référence");
+                        }
+
+                        if ($classification !== null) {
+                            import_designation_tracer_produit($pdo, $classification['id_import_designation'], (int)$newProductId);
+
+                            if ($classificationResolue && !empty($classification['id_voitures'])) {
+                                $sqlModele = $pdo->prepare('SELECT modele, annee_debut, annee_fin FROM voiture WHERE id_voiture = ?');
+                                $insertPvd = $pdo->prepare('INSERT INTO pvd (id_produit, id_voiture, description) VALUES (?, ?, ?)');
+                                foreach ($classification['id_voitures'] as $idVoiture) {
+                                    $sqlModele->execute([$idVoiture]);
+                                    $voitureRow = $sqlModele->fetch(PDO::FETCH_ASSOC) ?: [];
+                                    $modeleVoiture = $voitureRow['modele'] ?? '';
+                                    $anneeDebut = isset($voitureRow['annee_debut']) ? (int)$voitureRow['annee_debut'] : null;
+                                    $anneeFin = isset($voitureRow['annee_fin']) ? (int)$voitureRow['annee_fin'] : null;
+                                    $description = pvd_composer_description($libelle, $modeleVoiture, $anneeDebut, $anneeFin, $marque, null, null);
+                                    $insertPvd->execute([$newProductId, $idVoiture, $description]);
+                                }
+                            }
+                        }
+
+                        $newProductsCount++;
+                    } catch (Exception $e) {
+                        $errors[] = "Ligne $rowIndex: " . $e->getMessage();
+                        continue;
+                    }
+                }
+            }
+
+            $pdo->commit();
+            import_progress('Réconciliation du stock...', 92);
+
+            // Reconciliation (Phase 2) : tout produit ayant au moins une
+            // reference et absent de ce fichier est passe hors stock. Les
+            // produits sans reference du tout sont exclus (impossible a
+            // verifier) et listes a part pour un traitement manuel.
+            $produitsZeroifies = 0;
+            if (!empty($referencesVues)) {
+                // Pas de ENGINE=MEMORY : ce moteur reserve une largeur
+                // fixe par ligne pour un VARCHAR, ce qui fait exploser la
+                // taille reelle avec ~17 000 references et depasse vite
+                // max_heap_table_size (mesure : "table tmp_stock_refs is
+                // full" sur le vrai fichier stock complet). Le moteur par
+                // defaut (InnoDB) n'a pas cette limite.
+                $pdo->exec('DROP TEMPORARY TABLE IF EXISTS tmp_stock_refs');
+                $pdo->exec('CREATE TEMPORARY TABLE tmp_stock_refs (reference VARCHAR(255) NOT NULL, PRIMARY KEY (reference))');
+
+                $insertTmp = $pdo->prepare('INSERT IGNORE INTO tmp_stock_refs (reference) VALUES ' . implode(',', array_fill(0, 500, '(?)')));
+                $toutesRefs = array_keys($referencesVues);
+                foreach (array_chunk($toutesRefs, 500) as $lot) {
+                    if (count($lot) < 500) {
+                        $pdo->prepare('INSERT IGNORE INTO tmp_stock_refs (reference) VALUES ' . implode(',', array_fill(0, count($lot), '(?)')))->execute($lot);
+                    } else {
+                        $insertTmp->execute($lot);
+                    }
+                }
+
+                $reconcile = $pdo->prepare(
+                    'UPDATE produit p
+                     SET p.stock = 0, p.quantite = 0
+                     WHERE EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit)
+                       AND NOT EXISTS (
+                             SELECT 1 FROM reference r2
+                             JOIN tmp_stock_refs t ON t.reference = TRIM(r2.reference)
+                             WHERE r2.id_produit = p.id_produit
+                           )
+                       AND (p.stock <> 0 OR p.quantite IS NULL OR p.quantite <> 0)'
+                );
+                $reconcile->execute();
+                $produitsZeroifies = $reconcile->rowCount();
+
+                $pdo->exec('DROP TEMPORARY TABLE IF EXISTS tmp_stock_refs');
+            }
+
+            // Meme perimetre que l'onglet "Sans reference" de
+            // rapport-catalogue.php (stock=1) - un produit sans reference
+            // deja marque non disponible n'a rien d'urgent a signaler ici.
+            $sansReference = (int)$pdo->query(
+                "SELECT COUNT(*) FROM produit p WHERE p.stock = 1 AND NOT EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit)"
+            )->fetchColumn();
+
+            import_progress('Import terminé.', 100);
+
+            stock_afficher_rapport($newProductsCount, $updatedProductsCount, $errors);
+
+            echo "<div class='result-message'>";
+            echo "<p style='color: green;'>$produitsZeroifies produit(s) absent(s) de ce fichier repassé(s) hors stock.</p>";
+            if ($sansReference > 0) {
+                echo "<p style='color: orange;'>$sansReference produit(s) disponibles du catalogue n'ont aucune référence enregistrée - "
+                    . "impossible de vérifier leur présence dans ce fichier, ils n'ont pas été touchés. "
+                    . "<a href='rapport-catalogue.php?vue=sans_reference' target='_blank'>Voir la liste complète</a>.</p>";
+            }
+            echo '</div>';
+        }
+
+        // ---------------------------------------------------------------
+        // Import "Ventes du jour" : ne cree jamais de produit. Ecrit
+        // directement la colonne "Stock Actuel" du fichier (deja le
+        // resultat final apres la vente, aucune arithmetique a faire).
+        // ---------------------------------------------------------------
+        function stock_importer_ventes(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): void
+        {
+            import_progress('Import des ventes du jour...', 20);
+
+            $updatedCount = 0;
+            $anomalies = [];
+            $pdo->beginTransaction();
+
+            for ($rowIndex = $premiereLigne; $rowIndex <= $derniereLigne; $rowIndex++) {
+                $reference = trim((string)(import_format_lire($sheet, $descripteur, $rowIndex, 'REFERENCE') ?? ''));
+                $designation = trim((string)(import_format_lire($sheet, $descripteur, $rowIndex, 'DESIGNATION') ?? ''));
+                $marque = trim((string)(import_format_lire($sheet, $descripteur, $rowIndex, 'MARQUE') ?? ''));
+                $stockActuelVal = import_format_lire($sheet, $descripteur, $rowIndex, 'STOCK_ACTUEL');
+
+                if ($reference === '' && $designation === '') {
+                    // Ligne de total en fin de fichier - a ignorer, pas une erreur.
+                    continue;
+                }
+                if ($reference === '') {
+                    $anomalies[] = "Ligne $rowIndex: référence manquante, vente ignorée";
+                    continue;
+                }
+                if ($stockActuelVal === null) {
+                    $anomalies[] = "Ligne $rowIndex: colonne Stock Actuel manquante pour $reference, vente ignorée";
+                    continue;
+                }
+
+                $stockActuel = (int)import_format_nombre($stockActuelVal);
+                $idProduit = stock_trouver_produit($pdo, $reference, $marque);
+
+                if ($idProduit === null) {
+                    $anomalies[] = "Ligne $rowIndex: référence $reference introuvable dans le catalogue, vente ignorée";
+                    continue;
+                }
+
+                $updateStmt = $pdo->prepare('UPDATE produit SET stock = ?, quantite = ? WHERE id_produit = ?');
+                $updateStmt->execute([$stockActuel > 0 ? 1 : 0, $stockActuel, $idProduit]);
+                $updatedCount++;
+            }
+
+            $pdo->commit();
+            import_progress('Import terminé.', 100);
+            stock_afficher_rapport(0, $updatedCount, $anomalies, 'Import terminé, quelques lignes non appliquées :');
+        }
+
+        // ---------------------------------------------------------------
+        // Import "Achats du jour" : peut creer un produit (nouvel article
+        // en inventaire), sinon met a jour uniquement stock/quantite -
+        // ne touche jamais le prix d'un produit deja existant.
+        // ---------------------------------------------------------------
+        function stock_importer_achats(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): void
+        {
+            $designationsSheet = [];
+            for ($ligne = $premiereLigne; $ligne <= $derniereLigne; $ligne++) {
+                $texte = trim((string)(import_format_lire($sheet, $descripteur, $ligne, 'DESIGNATION') ?? ''));
+                if ($texte !== '') {
+                    $designationsSheet[$texte] = true;
+                }
+            }
+
+            import_progress('Classification des désignations (0/' . count($designationsSheet) . ')...', 0);
+            $debutClassification = microtime(true);
+            $classifications = import_classification_resoudre($pdo, array_keys($designationsSheet), function (int $lotsFait, int $lotsTotal) use ($debutClassification) {
+                $pourcentage = $lotsTotal > 0 ? ($lotsFait / $lotsTotal) * 45 : 45;
+                import_progress(
+                    "Classification des désignations, lot $lotsFait/$lotsTotal" . import_eta($debutClassification, $lotsFait, $lotsTotal),
+                    $pourcentage
+                );
+            });
+            import_progress('Classification terminée. Import des achats...', 45);
+
+            $newProductsCount = 0;
+            $updatedProductsCount = 0;
+            $errors = [];
+            $pdo->beginTransaction();
+
+            for ($rowIndex = $premiereLigne; $rowIndex <= $derniereLigne; $rowIndex++) {
+                $reference = trim((string)(import_format_lire($sheet, $descripteur, $rowIndex, 'REFERENCE') ?? ''));
+                $libelle = trim((string)(import_format_lire($sheet, $descripteur, $rowIndex, 'DESIGNATION') ?? ''));
+                $marque = trim((string)(import_format_lire($sheet, $descripteur, $rowIndex, 'MARQUE') ?? ''));
+                $stockActuelVal = import_format_lire($sheet, $descripteur, $rowIndex, 'STOCK_ACTUEL');
+
+                if ($reference === '' && $libelle === '') {
+                    continue;
+                }
+                if ($reference === '') {
+                    $errors[] = "Ligne $rowIndex: référence manquante";
+                    continue;
+                }
+
+                $stockActuel = (int)import_format_nombre($stockActuelVal);
+                $stock = $stockActuel > 0 ? 1 : 0;
+
+                $idProduit = stock_trouver_produit($pdo, $reference, $marque);
+
+                if ($idProduit !== null) {
+                    // Produit deja connu : seul le stock/la quantite
+                    // bougent, jamais le prix (la valeur "P.Vente Moyen"
+                    // du jour n'est qu'une moyenne d'achat, pas une
+                    // decision tarifaire).
+                    $updateStmt = $pdo->prepare('UPDATE produit SET stock = ?, quantite = ? WHERE id_produit = ?');
+                    $updateStmt->execute([$stock, $stockActuel, $idProduit]);
+                    $updatedProductsCount++;
+
+                    $classificationExistant = $classifications[$libelle] ?? null;
+                    if ($classificationExistant !== null) {
+                        import_designation_tracer_produit($pdo, $classificationExistant['id_import_designation'], $idProduit);
+                    }
+                    continue;
+                }
+
+                if ($libelle === '') {
+                    $errors[] = "Ligne $rowIndex: libellé manquant pour la référence $reference (nouvel article)";
+                    continue;
+                }
+
+                try {
+                    $prixInitial = import_format_nombre(import_format_lire($sheet, $descripteur, $rowIndex, 'PV_GROS'));
+                    $prix = stock_appliquer_marge($prixInitial);
+
+                    $classification = $classifications[$libelle] ?? null;
+                    $classificationResolue = $classification !== null && $classification['statut'] === 'resolu';
+                    $idCategorie = $classificationResolue ? $classification['id_categorie'] : 0;
+                    $idSousCategorie = $classificationResolue ? $classification['id_sous_categorie'] : 0;
+
+                    $insertProductStmt = $pdo->prepare('INSERT INTO produit (libelle, marquepiece, prix, stock, quantite, id_categorie, id_sous_categorie) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                    $insertProductStmt->execute([$libelle, $marque, $prix, $stock, $stockActuel, $idCategorie, $idSousCategorie]);
+                    $newProductId = $pdo->lastInsertId();
+
+                    if ($newProductId <= 0) {
+                        throw new Exception("Échec de l'insertion du produit - ID invalide");
+                    }
+
+                    $insertRefStmt = $pdo->prepare('INSERT INTO reference (reference, id_produit) VALUES (?, ?)');
+                    $insertRefStmt->execute([$reference, $newProductId]);
+                    if ($insertRefStmt->rowCount() === 0) {
+                        throw new Exception("Échec de l'insertion de la référence");
+                    }
+
+                    if ($classification !== null) {
+                        import_designation_tracer_produit($pdo, $classification['id_import_designation'], (int)$newProductId);
+
+                        if ($classificationResolue && !empty($classification['id_voitures'])) {
+                            $sqlModele = $pdo->prepare('SELECT modele, annee_debut, annee_fin FROM voiture WHERE id_voiture = ?');
+                            $insertPvd = $pdo->prepare('INSERT INTO pvd (id_produit, id_voiture, description) VALUES (?, ?, ?)');
+                            foreach ($classification['id_voitures'] as $idVoiture) {
+                                $sqlModele->execute([$idVoiture]);
+                                $voitureRow = $sqlModele->fetch(PDO::FETCH_ASSOC) ?: [];
+                                $modeleVoiture = $voitureRow['modele'] ?? '';
+                                $anneeDebut = isset($voitureRow['annee_debut']) ? (int)$voitureRow['annee_debut'] : null;
+                                $anneeFin = isset($voitureRow['annee_fin']) ? (int)$voitureRow['annee_fin'] : null;
+                                $description = pvd_composer_description($libelle, $modeleVoiture, $anneeDebut, $anneeFin, $marque, null, null);
+                                $insertPvd->execute([$newProductId, $idVoiture, $description]);
+                            }
+                        }
+                    }
+
+                    $newProductsCount++;
+                } catch (Exception $e) {
+                    $errors[] = "Ligne $rowIndex: " . $e->getMessage();
+                    continue;
+                }
+            }
+
+            $pdo->commit();
+            import_progress('Import terminé.', 100);
+            stock_afficher_rapport($newProductsCount, $updatedProductsCount, $errors);
+        }
+
+        if (isset($_POST['importer']) && in_array($_POST['importer'], ['stock', 'ventes', 'achats'], true)) {
+            $typeImport = $_POST['importer'];
             if (isset($_FILES['fichier']) && $_FILES['fichier']['error'] == UPLOAD_ERR_OK) {
                 $fichier_tmp = $_FILES['fichier']['tmp_name'];
                 // Un fichier fournisseur reel peut depasser plusieurs milliers
                 // de lignes - la limite par defaut de 120s (max_execution_time)
                 // coupe le script en pleine transaction avant la fin (deja
                 // observe : PHP Fatal error, transaction annulee automatiquement,
-                // aucune donnee ecrite - echec propre mais total). 10 minutes.
+                // aucune donnee ecrite - echec propre mais total). 10 minutes,
+                // reactives a chaque tick de progression (voir import_progress).
                 set_time_limit(600);
-
-                // Barre de progression : pas d'AJAX/websocket dans ce projet,
-                // donc on desactive la bufferisation et on pousse des <script>
-                // au fur et a mesure - chacun s'execute des son arrivee dans
-                // le navigateur et met a jour la meme barre en place. Marche
-                // sur de l'hebergement mutualise classique, aucune dependance
-                // en plus.
-                while (ob_get_level() > 0) {
-                    @ob_end_flush();
-                }
-                @ini_set('zlib.output_compression', '0');
-                @ini_set('implicit_flush', '1');
-                ob_implicit_flush(true);
-
-                echo '<div style="margin:14px 1px;max-width:520px;">'
-                    . '<div style="background:#eee;border-radius:6px;height:20px;overflow:hidden;">'
-                    . '<div id="import-bar" style="background:rgb(24,185,24);height:100%;width:0%;transition:width .3s;"></div>'
-                    . '</div>'
-                    . '<p id="import-texte" style="margin:6px 0;color:#555;font-size:14px;">Préparation...</p>'
-                    . '</div>';
-                flush();
-
-                function import_progress(string $texte, float $pourcentage): void
-                {
-                    // Repousse la limite d'execution a chaque appel plutot que
-                    // de fixer une seule valeur globale au depart - un gros
-                    // fichier avec beaucoup de designations jamais vues peut
-                    // depasser n'importe quelle limite fixe (deja observe :
-                    // 600s depassees en pleine classification). Tant que
-                    // l'ecart entre deux appels reste sous 600s, le script
-                    // peut tourner aussi longtemps que necessaire.
-                    set_time_limit(600);
-                    $pourcentage = max(0, min(100, $pourcentage));
-                    echo '<script>'
-                        . 'document.getElementById("import-bar").style.width="' . $pourcentage . '%";'
-                        . 'document.getElementById("import-texte").innerText=' . json_encode($texte) . ';'
-                        . '</script>' . "\n";
-                    flush();
-                }
-
-                function import_eta(float $debut, int $fait, int $total): string
-                {
-                    if ($fait === 0) {
-                        return '';
-                    }
-                    $ecoule = microtime(true) - $debut;
-                    $restant = ($ecoule / $fait) * ($total - $fait);
-                    if ($restant < 60) {
-                        return ' - environ ' . (int)round($restant) . 's restantes';
-                    }
-                    return ' - environ ' . (int)round($restant / 60) . ' min restantes';
-                }
+                import_demarrer_affichage();
 
                 try {
-                    // Charger le fichier Excel
                     $spreadsheet = IOFactory::load($fichier_tmp);
                     $sheet = $spreadsheet->getActiveSheet();
 
+                    // Phase 0/1 du plan : ne jamais faire confiance a une
+                    // lettre de colonne fixe. On detecte le type reel du
+                    // fichier par le nom de ses colonnes et on verifie
+                    // qu'il correspond au bouton clique - sinon on annule
+                    // avant d'ecrire quoi que ce soit (voir
+                    // dashboard/include/import_format.php).
+                    $descripteur = import_format_detecter($sheet);
+                    import_format_verifier_type($descripteur, $typeImport);
+
+                    $colRef = $descripteur['colonnes']['REFERENCE'] ?? null;
+                    $colDesig = $descripteur['colonnes']['DESIGNATION'] ?? null;
                     // getHighestRow() reflete la dimension globale de la
-                    // feuille (mise en forme, cellule isolee tres bas...) et
-                    // peut etre bien plus grande que la derniere ligne
-                    // reellement remplie - deja observe : 18084 rapporte par
-                    // getHighestRow() alors que les colonnes utiles s'arretent
-                    // a 8500, ce qui faisait boucler inutilement sur ~9500
-                    // lignes vides (lecture de cellules a chaque fois) et
-                    // ralentissait l'import pour rien. getHighestDataRow()
-                    // donne la vraie derniere ligne de donnees par colonne.
+                    // feuille (mise en forme, cellule isolee tres bas...)
+                    // et peut etre bien plus grande que la derniere ligne
+                    // reellement remplie - deja observe : 18084 rapporte
+                    // par getHighestRow() alors que les colonnes utiles
+                    // s'arretent a 8500. getHighestDataRow() donne la
+                    // vraie derniere ligne de donnees par colonne.
                     $derniereLigneUtile = max(
-                        $sheet->getHighestDataRow('A'),
-                        $sheet->getHighestDataRow('C')
+                        $colRef ? $sheet->getHighestDataRow($colRef) : 0,
+                        $colDesig ? $sheet->getHighestDataRow($colDesig) : 0
                     );
-
-                    // Auto-categorisation/liaison-vehicule (voir
-                    // db/import_designation.sql) : une passe a part, AVANT la
-                    // transaction d'import, pour que le cache LLM soit ecrit
-                    // meme si l'import lui-meme echoue ensuite (ne jamais
-                    // repayer un appel LLM deja fait).
-                    $designationsSheet = [];
-                    foreach ($sheet->getRowIterator(2, $derniereLigneUtile) as $ligneDesignation) {
-                        $texte = trim((string)$sheet->getCell('C' . $ligneDesignation->getRowIndex())->getCalculatedValue());
-                        if ($texte !== '') {
-                            $designationsSheet[$texte] = true;
-                        }
+                    $premiereLigne = $descripteur['premiere_ligne_donnees'];
+                    if ($derniereLigneUtile < $premiereLigne) {
+                        $derniereLigneUtile = $premiereLigne - 1;
                     }
 
-                    import_progress('Classification des désignations (0/' . count($designationsSheet) . ')...', 0);
-                    $debutClassification = microtime(true);
-                    $classifications = import_classification_resoudre($pdo, array_keys($designationsSheet), function (int $lotsFait, int $lotsTotal) use ($debutClassification) {
-                        $pourcentage = $lotsTotal > 0 ? ($lotsFait / $lotsTotal) * 50 : 50;
-                        import_progress(
-                            "Classification des désignations, lot $lotsFait/$lotsTotal" . import_eta($debutClassification, $lotsFait, $lotsTotal),
-                            $pourcentage
-                        );
-                    });
-                    import_progress('Classification terminée. Import des produits...', 50);
-
-                    // Initialisation des compteurs
-                    $newProductsCount = 0;
-                    $updatedProductsCount = 0;
-                    $errors = [];
-
-                    // Démarrer une transaction
-                    $pdo->beginTransaction();
-
-                    $totalLignes = $derniereLigneUtile - 1;
-                    $ligneCourante = 0;
-                    $debutImport = microtime(true);
-
-                    foreach ($sheet->getRowIterator(2, $derniereLigneUtile) as $row) {
-                        $rowIndex = $row->getRowIndex();
-                        $ligneCourante++;
-                        if ($ligneCourante % 200 === 0 || $ligneCourante === $totalLignes) {
-                            import_progress(
-                                "Import des produits, ligne $ligneCourante/$totalLignes" . import_eta($debutImport, $ligneCourante, $totalLignes),
-                                50 + ($totalLignes > 0 ? ($ligneCourante / $totalLignes) * 50 : 50)
-                            );
-                        }
-
-                        // Récupération des données du fichier Excel - CORRECTION ICI
-                        $reference = trim($sheet->getCell('A' . $rowIndex)->getCalculatedValue() ?? '');
-                        $libelle = trim($sheet->getCell('C' . $rowIndex)->getCalculatedValue() ?? '');
-                        $marque = trim($sheet->getCell('D' . $rowIndex)->getCalculatedValue() ?? '');
-                        $quant = (int)($sheet->getCell('E' . $rowIndex)->getCalculatedValue() ?? 0);
-                       // $prix = (float)($sheet->getCell('G' . $rowIndex)->getCalculatedValue() ?? 0);
-                        $prix_initial = (float)$sheet->getCell('H' . $rowIndex)->getCalculatedValue();
-                        $prix = $prix_initial;
-                        $stock = ($quant > 0) ? 1 : 0;
-                        
-                        if($prix_initial > 0 AND $prix_initial <= 2000){
-                            $prix *= 1.5;
-                        }
-                        if($prix_initial > 2000 AND $prix_initial <= 4000){
-                            $prix *= 1.4;
-                        }
-                        if($prix_initial > 4000 AND $prix_initial <= 6000){
-                            $prix *= 1.35;
-                        }
-                        if($prix_initial > 6000 AND $prix_initial <= 8000){
-                            $prix *= 1.3;
-                        }
-                        if($prix_initial > 8000 AND $prix_initial <= 15000){
-                            $prix *= 1.25;
-                        }
-                        if($prix_initial > 15000 AND $prix_initial <= 30000){
-                            $prix *= 1.2;
-                        }
-                        if($prix_initial > 30000 AND $prix_initial <= 50000){
-                            $prix *= 1.15;
-                        }
-                        if($prix_initial > 50000 AND $prix_initial <= 60000){
-                            $prix *= 1.12;
-                        }
-                        if($prix > 60000){
-                            $prix *= 1.11;
-                        }
-                        
-                        // Debug - affichage temporaire pour vérifier les données
-                        // echo "Ligne $rowIndex: Ref='$reference', Lib='$libelle', Marque='$marque', Quant=$quant, Prix=$prix<br>";
-                        
-                        // Validation des données obligatoires
-                        if (empty($reference)) {
-                            $errors[] = "Ligne $rowIndex: Référence manquante";
-                            continue;
-                        }
-                        
-                        if (empty($libelle)) {
-                            $errors[] = "Ligne $rowIndex: Libellé manquant pour la référence $reference";
-                            continue;
-                        }
-                        
-                        // Vérifier si la référence existe déjà
-                        $sql = "SELECT r.id_reference, r.id_produit, p.marquepiece 
-                                FROM reference r 
-                                JOIN produit p ON r.id_produit = p.id_produit 
-                                WHERE TRIM(r.reference) = ?";
-                        $stmt = $pdo->prepare($sql);
-                        $stmt->execute([$reference]);
-                        $existingRefs = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                        // Deduplique par produit (une meme reference textuelle
-                        // peut avoir plusieurs lignes dans `reference` pointant
-                        // vers le meme produit).
-                        $produitsDistincts = [];
-                        foreach ($existingRefs as $existing) {
-                            $produitsDistincts[$existing['id_produit']] = $existing['marquepiece'];
-                        }
-
-                        $productExists = false;
-                        $matchingProductId = null;
-
-                        if (count($produitsDistincts) === 1) {
-                            // Reference sans ambiguite dans le catalogue : on
-                            // identifie le produit par la reference seule, sans
-                            // exiger que la marque corresponde. Une marque
-                            // corrigee manuellement (page Decisions PVD) ne doit
-                            // jamais faire perdre le lien avec un import futur
-                            // venant d'un logiciel externe qui ne connait pas
-                            // cette correction - verifie : sans ce cas special,
-                            // ca creait un produit en double a chaque reimport.
-                            $productExists = true;
-                            $matchingProductId = array_key_first($produitsDistincts);
-                        } else {
-                            // Plusieurs produits distincts partagent reellement
-                            // cette reference (cas legitime, mesure : pieces
-                            // compatibles de marques differentes partageant un
-                            // meme numero) - la marque redevient necessaire pour
-                            // savoir lequel des deux mettre a jour.
-                            foreach ($produitsDistincts as $idProduit => $marquepiece) {
-                                if (trim($marquepiece) == trim($marque)) {
-                                    $productExists = true;
-                                    $matchingProductId = $idProduit;
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        if ($productExists) {
-                            // Mise à jour du produit existant
-                            $updateSql = "UPDATE produit
-                                         SET prix = ?, stock = ?
-                                         WHERE id_produit = ?";
-                            $updateStmt = $pdo->prepare($updateSql);
-                            $updateStmt->execute([$prix, $stock, $matchingProductId]);
-                            $updatedProductsCount++;
-
-                            // Trace aussi les produits deja existants vers leur
-                            // designation (pas seulement les nouveaux crees
-                            // ci-dessous) - sinon une correction humaine plus
-                            // tard sur la page de revision ne peut jamais
-                            // atteindre les produits qui existaient deja avant
-                            // cet import (98% des lignes reelles mesurees).
-                            $classificationExistant = $classifications[$libelle] ?? null;
-                            if ($classificationExistant !== null) {
-                                import_designation_tracer_produit($pdo, $classificationExistant['id_import_designation'], (int)$matchingProductId);
-                            }
-                        } else {
-                            // Insertion d'un nouveau produit avec gestion des erreurs
-                            try {
-                                // Categorie/sous-categorie/vehicules suggeres par l'auto-
-                                // classification (voir db/import_designation.sql) - appliques
-                                // uniquement si statut='resolu' (confiance suffisante pour ne
-                                // pas passer par la revue humaine). Un statut 'a_verifier' ne
-                                // doit jamais ecrire quoi que ce soit sur le produit reel - 0/
-                                // aucun vehicule, meme convention "non categorise" que le reste
-                                // du catalogue, jamais bloquant pour la creation du produit.
-                                $classification = $classifications[$libelle] ?? null;
-                                $classificationResolue = $classification !== null && $classification['statut'] === 'resolu';
-                                $idCategorie = $classificationResolue ? $classification['id_categorie'] : 0;
-                                $idSousCategorie = $classificationResolue ? $classification['id_sous_categorie'] : 0;
-
-                                // Insertion du produit - CORRECTION: utiliser les bonnes variables
-                                $insertProductSql = "INSERT INTO produit (libelle, marquepiece, prix, stock, id_categorie, id_sous_categorie) VALUES (?, ?, ?, ?, ?, ?)";
-                                $insertProductStmt = $pdo->prepare($insertProductSql);
-                                $insertProductStmt->execute([$libelle, $marque, $prix, $stock, $idCategorie, $idSousCategorie]);
-                                $newProductId = $pdo->lastInsertId();
-
-                                // Vérifier que l'ID est valide
-                                if ($newProductId <= 0) {
-                                    throw new Exception("Échec de l'insertion du produit - ID invalide");
-                                }
-
-                                // Insertion de la référence - CORRECTION: utiliser $reference, pas $marque
-                                $insertRefSql = "INSERT INTO reference (reference, id_produit) VALUES (?, ?)";
-                                $insertRefStmt = $pdo->prepare($insertRefSql);
-                                $insertRefStmt->execute([$reference, $newProductId]);
-
-                                // Vérifier que la référence a bien été insérée
-                                if ($insertRefStmt->rowCount() === 0) {
-                                    throw new Exception("Échec de l'insertion de la référence");
-                                }
-
-                                if ($classification !== null) {
-                                    // Trace toujours, meme non resolu - c'est ce qui permet a
-                                    // l'onglet de revision de rattraper ce produit plus tard.
-                                    import_designation_tracer_produit($pdo, $classification['id_import_designation'], (int)$newProductId);
-
-                                    if ($classificationResolue && !empty($classification['id_voitures'])) {
-                                        $sqlModele = $pdo->prepare('SELECT modele, annee_debut, annee_fin FROM voiture WHERE id_voiture = ?');
-                                        $insertPvd = $pdo->prepare('INSERT INTO pvd (id_produit, id_voiture, description) VALUES (?, ?, ?)');
-                                        foreach ($classification['id_voitures'] as $idVoiture) {
-                                            $sqlModele->execute([$idVoiture]);
-                                            $voitureRow = $sqlModele->fetch(PDO::FETCH_ASSOC) ?: [];
-                                            $modeleVoiture = $voitureRow['modele'] ?? '';
-                                            $anneeDebut = isset($voitureRow['annee_debut']) ? (int)$voitureRow['annee_debut'] : null;
-                                            $anneeFin = isset($voitureRow['annee_fin']) ? (int)$voitureRow['annee_fin'] : null;
-                                            $description = pvd_composer_description($libelle, $modeleVoiture, $anneeDebut, $anneeFin, $marque, null, null);
-                                            $insertPvd->execute([$newProductId, $idVoiture, $description]);
-                                        }
-                                    }
-                                }
-
-                                $newProductsCount++;
-                            } catch (Exception $e) {
-                                $errors[] = "Ligne $rowIndex: " . $e->getMessage();
-                                // Ne pas faire rollback ici, juste continuer
-                                continue;
-                            }
-                        }
-                    }
-                    
-                    // Valider la transaction
-                    $pdo->commit();
-                    import_progress('Import terminé.', 100);
-
-                    // Affichage des résultats
-                    echo "<div class='result-message'>";
-                    if ($newProductsCount > 0) {
-                        echo "<p style='color: green;'>$newProductsCount nouveaux produits ajoutés.</p>";
-                    }
-                    if ($updatedProductsCount > 0) {
-                        echo "<p style='color: green;'>$updatedProductsCount produits mis à jour.</p>";
-                    }
-                    if (empty($errors)) {
-                        echo "<p style='color: green;'>Import terminé avec succès.</p>";
+                    if ($typeImport === 'stock') {
+                        stock_importer_stock_complet($pdo, $sheet, $descripteur, $premiereLigne, $derniereLigneUtile);
+                    } elseif ($typeImport === 'ventes') {
+                        stock_importer_ventes($pdo, $sheet, $descripteur, $premiereLigne, $derniereLigneUtile);
                     } else {
-                        echo "<p style='color: orange;'>Import terminé avec quelques erreurs :</p>";
-                        echo "<ul>";
-                        foreach ($errors as $error) {
-                            echo "<li>$error</li>";
-                        }
-                        echo "</ul>";
+                        stock_importer_achats($pdo, $sheet, $descripteur, $premiereLigne, $derniereLigneUtile);
                     }
-                    echo "</div>";
-                    
+                } catch (ImportFormatException $e) {
+                    import_progress('Import annulé.', 100);
+                    echo "<p style='color: red;'>" . htmlspecialchars($e->getMessage()) . "</p>";
                 } catch (Exception $e) {
-                    // Annuler la transaction en cas d'erreur
-                    $pdo->rollBack();
-                    echo "<p style='color: red;'>Erreur lors de l'import : " . $e->getMessage() . "</p>";
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    import_progress('Import annulé.', 100);
+                    echo "<p style='color: red;'>Erreur lors de l'import : " . htmlspecialchars($e->getMessage()) . "</p>";
                 }
             } else {
                 echo "<p style='color: red;'>Veuillez télécharger un fichier valide.</p>";
             }
         }
-        
+
     ?>
-        
+
         <div class="page-voiture">
-            <h1>En train de test</h1>
-            <h2>Télécharger votre fichier pour modifier le stock</h2>
+            <h1>Importer un fichier</h1>
+            <h2>Choisissez le fichier puis le bouton correspondant à son contenu</h2>
             <form method="POST" enctype="multipart/form-data">
-                <input type="file" name="fichier">
-                <input type="submit" name="modifier" value="modifier">
+                <input type="file" name="fichier" required>
+                <br><br>
+                <input type="submit" name="importer" value="stock" style="margin-right:10px;">
+                <label style="margin-right:25px;color:#666;">Stock complet</label>
+                <input type="submit" name="importer" value="ventes" style="margin-right:10px;">
+                <label style="margin-right:25px;color:#666;">Ventes du jour</label>
+                <input type="submit" name="importer" value="achats" style="margin-right:10px;">
+                <label style="color:#666;">Achats du jour</label>
+                <p style="color:#888;font-size:13px;margin-top:10px;">
+                    Le fichier est vérifié automatiquement : si ses colonnes ne
+                    correspondent pas au bouton choisi, rien n'est importé.
+                </p>
             </form>
         </div>
 
