@@ -128,12 +128,22 @@
             return $prix;
         }
 
-        // Identifie le produit correspondant a une reference+marque -
+        // Identifie TOUS les produits correspondant a une reference+marque -
         // dedupe par produit puis ne retombe sur la marque que si la
         // reference est reellement partagee par plusieurs produits
         // distincts (voir commit "Fix duplicate product creation on
         // marque-corrected reimports").
-        function stock_trouver_produit(PDO $pdo, string $reference, string $marque): ?int
+        //
+        // Renvoie une liste et non un seul id : le catalogue contient de
+        // vrais doublons (meme reference ET meme marque sur plusieurs
+        // lignes produit - mesure : 1224 groupes couvrant 2961 produits).
+        // Pour une mise a jour de stock, ils designent tous la meme piece
+        // physique en magasin : n'en mettre qu'un seul a jour laissait les
+        // autres affiches "disponible" alors que le stock etait tombe a 0
+        // (bug remonte par le boss apres un import ventes).
+        //
+        // @return int[] ids produits, vide si aucune correspondance sure.
+        function stock_trouver_produits(PDO $pdo, string $reference, string $marque): array
         {
             $sql = "SELECT r.id_produit, p.marquepiece
                     FROM reference r
@@ -149,16 +159,33 @@
             }
 
             if (count($produitsDistincts) === 1) {
-                return (int)array_key_first($produitsDistincts);
+                return [(int)array_key_first($produitsDistincts)];
             }
-            if (count($produitsDistincts) > 1) {
-                foreach ($produitsDistincts as $idProduit => $marquepiece) {
-                    if (trim($marquepiece) == trim($marque)) {
-                        return (int)$idProduit;
-                    }
+
+            // Plusieurs produits distincts partagent cette reference : la
+            // marque redevient necessaire pour savoir lesquels concernent
+            // reellement cette ligne. Tous ceux qui correspondent sont
+            // retournes (des doublons exacts doivent bouger ensemble), les
+            // autres marques sont de vrais produits differents et ne
+            // doivent jamais etre touches.
+            $correspondants = [];
+            foreach ($produitsDistincts as $idProduit => $marquepiece) {
+                if (trim($marquepiece) == trim($marque)) {
+                    $correspondants[] = (int)$idProduit;
                 }
             }
-            return null;
+            return $correspondants;
+        }
+
+        // Variante "un seul produit" - pour les usages ou un identifiant
+        // unique suffit (savoir si le produit existe deja avant d'en creer
+        // un, rattacher une photo). Les mises a jour de stock, elles,
+        // doivent passer par stock_trouver_produits() pour toucher aussi
+        // les doublons.
+        function stock_trouver_produit(PDO $pdo, string $reference, string $marque): ?int
+        {
+            $ids = stock_trouver_produits($pdo, $reference, $marque);
+            return $ids === [] ? null : $ids[0];
         }
 
         function stock_afficher_rapport(int $crees, int $maj, array $erreurs, string $titreErreurs = 'Import terminé avec quelques erreurs :'): void
@@ -271,22 +298,28 @@
                 $prix = stock_appliquer_marge($prixInitial);
                 $stock = ($quant > 0) ? 1 : 0;
 
-                $matchingProductId = stock_trouver_produit($pdo, $reference, $marque);
+                // Tous les produits correspondants, pas seulement le
+                // premier : de vrais doublons (meme reference + meme
+                // marque) designent la meme piece physique et doivent
+                // tous refleter le meme stock.
+                $matchingProductIds = stock_trouver_produits($pdo, $reference, $marque);
 
-                if ($matchingProductId !== null) {
+                if ($matchingProductIds !== []) {
                     $updateStmt = $pdo->prepare('UPDATE produit SET prix = ?, stock = ?, quantite = ? WHERE id_produit = ?');
-                    $updateStmt->execute([$prix, $stock, $quant, $matchingProductId]);
-                    $updatedProductsCount++;
-
-                    // Trace aussi les produits deja existants vers leur
-                    // designation (pas seulement les nouveaux crees
-                    // ci-dessous) - sinon une correction humaine plus tard
-                    // sur la page de revision ne peut jamais atteindre les
-                    // produits qui existaient deja avant cet import (98%
-                    // des lignes reelles mesurees).
                     $classificationExistant = $classifications[$libelle] ?? null;
-                    if ($classificationExistant !== null) {
-                        import_designation_tracer_produit($pdo, $classificationExistant['id_import_designation'], $matchingProductId);
+                    foreach ($matchingProductIds as $matchingProductId) {
+                        $updateStmt->execute([$prix, $stock, $quant, $matchingProductId]);
+                        $updatedProductsCount++;
+
+                        // Trace aussi les produits deja existants vers leur
+                        // designation (pas seulement les nouveaux crees
+                        // ci-dessous) - sinon une correction humaine plus tard
+                        // sur la page de revision ne peut jamais atteindre les
+                        // produits qui existaient deja avant cet import (98%
+                        // des lignes reelles mesurees).
+                        if ($classificationExistant !== null) {
+                            import_designation_tracer_produit($pdo, $classificationExistant['id_import_designation'], $matchingProductId);
+                        }
                     }
                 } else {
                     try {
@@ -435,16 +468,21 @@
                 }
 
                 $stockActuel = (int)import_format_nombre($stockActuelVal);
-                $idProduit = stock_trouver_produit($pdo, $reference, $marque);
+                // Tous les produits correspondants : un vrai doublon laisse
+                // de cote resterait affiche "disponible" alors que la piece
+                // est a 0 en magasin (bug remonte par le boss).
+                $idsProduits = stock_trouver_produits($pdo, $reference, $marque);
 
-                if ($idProduit === null) {
+                if ($idsProduits === []) {
                     $anomalies[] = "Ligne $rowIndex: référence $reference introuvable dans le catalogue, vente ignorée";
                     continue;
                 }
 
                 $updateStmt = $pdo->prepare('UPDATE produit SET stock = ?, quantite = ? WHERE id_produit = ?');
-                $updateStmt->execute([$stockActuel > 0 ? 1 : 0, $stockActuel, $idProduit]);
-                $updatedCount++;
+                foreach ($idsProduits as $idProduit) {
+                    $updateStmt->execute([$stockActuel > 0 ? 1 : 0, $stockActuel, $idProduit]);
+                    $updatedCount++;
+                }
             }
 
             $pdo->commit();
@@ -500,20 +538,24 @@
                 $stockActuel = (int)import_format_nombre($stockActuelVal);
                 $stock = $stockActuel > 0 ? 1 : 0;
 
-                $idProduit = stock_trouver_produit($pdo, $reference, $marque);
+                // Tous les produits correspondants (doublons inclus), meme
+                // raison que pour les ventes et le stock complet.
+                $idsProduits = stock_trouver_produits($pdo, $reference, $marque);
 
-                if ($idProduit !== null) {
+                if ($idsProduits !== []) {
                     // Produit deja connu : seul le stock/la quantite
                     // bougent, jamais le prix (la valeur "P.Vente Moyen"
                     // du jour n'est qu'une moyenne d'achat, pas une
                     // decision tarifaire).
                     $updateStmt = $pdo->prepare('UPDATE produit SET stock = ?, quantite = ? WHERE id_produit = ?');
-                    $updateStmt->execute([$stock, $stockActuel, $idProduit]);
-                    $updatedProductsCount++;
-
                     $classificationExistant = $classifications[$libelle] ?? null;
-                    if ($classificationExistant !== null) {
-                        import_designation_tracer_produit($pdo, $classificationExistant['id_import_designation'], $idProduit);
+                    foreach ($idsProduits as $idProduit) {
+                        $updateStmt->execute([$stock, $stockActuel, $idProduit]);
+                        $updatedProductsCount++;
+
+                        if ($classificationExistant !== null) {
+                            import_designation_tracer_produit($pdo, $classificationExistant['id_import_designation'], $idProduit);
+                        }
                     }
                     continue;
                 }
