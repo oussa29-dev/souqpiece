@@ -110,6 +110,7 @@ function photo_extraire_zip_securise(string $cheminZip, string $dossierDestinati
 
     $ignores = ['.ds_store', 'thumbs.db'];
     $fichiers = [];
+    $dejaEcrits = [];
 
     for ($i = 0; $i < $zip->numFiles; $i++) {
         $nomEntree = $zip->getNameIndex($i);
@@ -121,26 +122,55 @@ function photo_extraire_zip_securise(string $cheminZip, string $dossierDestinati
         if (substr($nomEntree, -1) === '/' || substr($nomEntree, 0, 9) === '__MACOSX/') {
             continue;
         }
-        $base = basename($nomEntree);
-        if (in_array(strtolower($base), $ignores, true)) {
+
+        // Extrait le contenu nous-memes (getFromIndex + file_put_contents)
+        // plutot que via extractTo() : la plupart des photos sont zippees
+        // a partir d'un DOSSIER (comportement par defaut de Windows/
+        // WinRAR quand on fait clic droit > Compresser), donc les entrees
+        // portent un chemin du type "MonDossier/REF_MARQUE_1.jpg" -
+        // extractTo() recree cette arborescence sur le disque alors que
+        // le code ne verifiait qu'un chemin plat (basename seul), ratant
+        // systematiquement le vrai fichier extrait et l'ignorant en
+        // silence, sans meme le signaler comme erreur (mesure : un vrai
+        // lot de 3 photos dans un sous-dossier, aucune appliquee, aucune
+        // anomalie affichee). En choisissant nous-memes ou ecrire (juste
+        // le nom de fichier final, sans le sous-dossier d'origine), on
+        // elimine aussi tout risque de zip-slip a la racine : basename()
+        // ne peut jamais produire de chemin qui sorte de $dossierDestination.
+        $nomNormalise = str_replace('\\', '/', $nomEntree);
+        $base = basename($nomNormalise);
+        if ($base === '' || in_array(strtolower($base), $ignores, true)) {
+            continue;
+        }
+        if (isset($dejaEcrits[strtolower($base)])) {
+            // Meme nom de fichier rencontre deux fois dans le zip (deux
+            // sous-dossiers differents) - la premiere occurrence est
+            // gardee, la suivante ignoree plutot que silencieusement
+            // ecrasee sur le disque.
+            continue;
+        }
+
+        $contenu = $zip->getFromIndex($i);
+        if ($contenu === false) {
             continue;
         }
 
         $cheminCible = $dossierDestination . DIRECTORY_SEPARATOR . $base;
-
-        if (!$zip->extractTo($dossierDestination, [$nomEntree])) {
+        if (file_put_contents($cheminCible, $contenu) === false) {
             continue;
         }
 
         $cheminReel = realpath($cheminCible);
         if ($cheminReel === false || strncmp($cheminReel, $racineReelle, strlen($racineReelle)) !== 0) {
-            // Extrait hors du dossier attendu (zip slip) - supprime et ignore.
+            // Garde-fou supplementaire, ne devrait plus jamais se
+            // declencher maintenant que le chemin est construit par nous.
             if ($cheminReel !== false) {
                 @unlink($cheminReel);
             }
             continue;
         }
 
+        $dejaEcrits[strtolower($base)] = true;
         $fichiers[] = $cheminReel;
     }
 
