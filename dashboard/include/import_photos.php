@@ -118,7 +118,7 @@ function photo_extraire_zip_securise(string $cheminZip, string $dossierDestinati
         }
         // Dossiers (y compris __MACOSX/...) et fichiers systeme - jamais
         // une vraie photo, ignores silencieusement.
-        if (substr($nomEntree, -1) === '/' || str_starts_with($nomEntree, '__MACOSX/')) {
+        if (substr($nomEntree, -1) === '/' || substr($nomEntree, 0, 9) === '__MACOSX/') {
             continue;
         }
         $base = basename($nomEntree);
