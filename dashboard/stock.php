@@ -32,6 +32,7 @@
         require_once 'include/import_classification.php';
         require_once 'include/pvd_extraction.php';
         require_once 'include/import_format.php';
+        require_once 'include/import_photos.php';
 
         use PhpOffice\PhpSpreadsheet\IOFactory;
 
@@ -618,6 +619,142 @@
             stock_afficher_rapport($newProductsCount, $updatedProductsCount, $errors);
         }
 
+        // ---------------------------------------------------------------
+        // Import "Photos" : associe chaque image d'un zip a un produit par
+        // reference+marque (nom de fichier REFERENCE_MARQUEPIECE_N.ext),
+        // voir PLAN_IMPORT_PHOTOS.md. Ne cree jamais de produit - une
+        // reference/marque introuvable est une anomalie a signaler.
+        // ---------------------------------------------------------------
+        function stock_importer_photos(PDO $pdo, string $cheminZip): void
+        {
+            $dossierTemp = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'souqpiece_photos_' . uniqid('', true);
+
+            try {
+                $fichiers = photo_extraire_zip_securise($cheminZip, $dossierTemp);
+            } catch (ImportPhotosException $e) {
+                echo "<p style='color: red;'>" . htmlspecialchars($e->getMessage()) . "</p>";
+                return;
+            }
+
+            import_progress('Analyse des ' . count($fichiers) . ' fichier(s) du zip...', 5);
+
+            // Associe chaque fichier extrait a son nom d'origine (pas
+            // seulement son chemin temporaire) pour un rapport lisible,
+            // et trie par (reference, marque, imgnbr) - traitement
+            // deterministe : le decalage vers l'emplacement libre suivant
+            // (section 4 du plan) doit donner le meme resultat a chaque
+            // import du meme lot, jamais dependant de l'ordre d'extraction
+            // du zip.
+            $analyses = [];
+            $erreurs = [];
+            foreach ($fichiers as $cheminExtrait) {
+                $nomOriginal = basename($cheminExtrait);
+                $parse = photo_parser_nom($nomOriginal);
+                if ($parse === null) {
+                    $erreurs[] = "$nomOriginal : nom de fichier non reconnu (attendu REFERENCE_MARQUEPIECE_N.jpg/.jpeg/.png)";
+                    continue;
+                }
+                $analyses[] = array_merge($parse, ['chemin' => $cheminExtrait, 'nom' => $nomOriginal]);
+            }
+            usort($analyses, function ($a, $b) {
+                return [$a['reference'], $a['marquepiece'], $a['imgnbr']] <=> [$b['reference'], $b['marquepiece'], $b['imgnbr']];
+            });
+
+            $dossierImages = __DIR__ . '/../img/produit/';
+            if (!is_dir($dossierImages)) {
+                @mkdir($dossierImages, 0755, true);
+            }
+
+            $emplacementsConnus = []; // id_produit => [1..10 => nom de fichier stocke]
+            $produitsTouches = [];
+            $imagesAppliquees = 0;
+            $total = count($analyses);
+            $traites = 0;
+            $debut = microtime(true);
+
+            foreach ($analyses as $item) {
+                $traites++;
+                if ($traites % 50 === 0 || $traites === $total) {
+                    import_progress(
+                        "Association des photos, $traites/$total" . import_eta($debut, $traites, $total),
+                        5 + ($total > 0 ? ($traites / $total) * 90 : 90)
+                    );
+                }
+
+                $idProduit = stock_trouver_produit($pdo, $item['reference'], $item['marquepiece']);
+                if ($idProduit === null) {
+                    $erreurs[] = "{$item['nom']} : produit introuvable pour référence « {$item['reference']} » / marque « {$item['marquepiece']} »";
+                    continue;
+                }
+
+                if (!isset($emplacementsConnus[$idProduit])) {
+                    $sqlImg = $pdo->prepare('SELECT img1, img2, img3, img4, img5, img6, img7, img8, img9, img10 FROM produit WHERE id_produit = ?');
+                    $sqlImg->execute([$idProduit]);
+                    $ligne = $sqlImg->fetch(PDO::FETCH_NUM) ?: array_fill(0, 10, '');
+                    $emplacementsConnus[$idProduit] = array_combine(range(1, 10), $ligne);
+                }
+
+                $slot = photo_trouver_emplacement_libre($emplacementsConnus[$idProduit], $item['imgnbr']);
+                if ($slot === null) {
+                    $erreurs[] = "{$item['nom']} : produit #$idProduit déjà complet (10 photos), image ignorée";
+                    continue;
+                }
+
+                $extension = strtolower(pathinfo($item['chemin'], PATHINFO_EXTENSION));
+                $nouveauNom = uniqid('', true) . '.' . $extension;
+                $destination = __DIR__ . '/../img/produit/' . $nouveauNom;
+
+                if (!@rename($item['chemin'], $destination)) {
+                    $erreurs[] = "{$item['nom']} : échec de la copie vers img/produit/";
+                    continue;
+                }
+
+                $colonne = 'img' . $slot;
+                $pdo->prepare("UPDATE produit SET $colonne = ? WHERE id_produit = ?")->execute([$nouveauNom, $idProduit]);
+
+                $emplacementsConnus[$idProduit][$slot] = $nouveauNom;
+                $produitsTouches[$idProduit] = true;
+                $imagesAppliquees++;
+            }
+
+            photo_supprimer_dossier($dossierTemp);
+
+            import_progress('Import terminé.', 100);
+
+            echo "<div class='result-message'>";
+            if ($imagesAppliquees > 0) {
+                echo "<p style='color: green;'>$imagesAppliquees photo(s) appliquée(s) sur " . count($produitsTouches) . " produit(s).</p>";
+            }
+            if (empty($erreurs)) {
+                echo "<p style='color: green;'>Import terminé avec succès.</p>";
+            } else {
+                echo "<p style='color: orange;'>Import terminé avec quelques anomalies :</p><ul>";
+                foreach (array_slice($erreurs, 0, 300) as $erreur) {
+                    echo '<li>' . htmlspecialchars($erreur) . '</li>';
+                }
+                if (count($erreurs) > 300) {
+                    echo '<li>... et ' . (count($erreurs) - 300) . ' autre(s), non affichée(s).</li>';
+                }
+                echo '</ul>';
+            }
+            echo '</div>';
+        }
+
+        if (isset($_POST['importer_photos'])) {
+            if (isset($_FILES['fichier_photos']) && $_FILES['fichier_photos']['error'] == UPLOAD_ERR_OK) {
+                set_time_limit(600);
+                import_demarrer_affichage();
+                try {
+                    stock_importer_photos($pdo, $_FILES['fichier_photos']['tmp_name']);
+                } catch (Exception $e) {
+                    import_progress('Import annulé.', 100);
+                    echo "<p style='color: red;'>Erreur lors de l'import : " . htmlspecialchars($e->getMessage()) . "</p>";
+                }
+            } else {
+                echo "<p style='color: red;'>Veuillez télécharger un fichier .zip valide.</p>";
+            }
+        }
+
         if (isset($_POST['importer']) && in_array($_POST['importer'], ['stock', 'ventes', 'achats'], true)) {
             $typeImport = $_POST['importer'];
             if (isset($_FILES['fichier']) && $_FILES['fichier']['error'] == UPLOAD_ERR_OK) {
@@ -701,6 +838,21 @@
                 <p style="color:#888;font-size:13px;margin-top:10px;">
                     Le fichier est vérifié automatiquement : si ses colonnes ne
                     correspondent pas au bouton choisi, rien n'est importé.
+                </p>
+            </form>
+        </div>
+
+        <div class="page-voiture">
+            <h1>Importer des photos</h1>
+            <h2>Un fichier .zip contenant les photos, chacune nommée REFERENCE_MARQUEPIECE_N.jpg/.jpeg/.png (N = numéro de la photo, 1 à 10)</h2>
+            <form method="POST" enctype="multipart/form-data">
+                <input type="file" name="fichier_photos" accept=".zip" required>
+                <br><br>
+                <input type="submit" name="importer_photos" value="Importer les photos" style="margin-right:10px;">
+                <p style="color:#888;font-size:13px;margin-top:10px;">
+                    Exemple de nom de fichier : 16210-17050_ORIGINE_1.jpg. Si
+                    l'emplacement demandé est déjà pris, la photo est rangée
+                    dans le premier emplacement libre suivant.
                 </p>
             </form>
         </div>
