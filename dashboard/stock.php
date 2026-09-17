@@ -852,7 +852,10 @@
                 <p style="color:#888;font-size:13px;margin-top:10px;">
                     Exemple de nom de fichier : 16210-17050_ORIGINE_1.jpg. Si
                     l'emplacement demandé est déjà pris, la photo est rangée
-                    dans le premier emplacement libre suivant.
+                    dans le premier emplacement libre suivant.<br>
+                    Si la référence ou la marque contient un « / », remplacez-le
+                    par « ~ » dans le nom du fichier (ex. 84306-02190/ → 84306-02190~).
+                    Pour un « * », remplacez-le par « ^ ».
                 </p>
             </form>
         </div>

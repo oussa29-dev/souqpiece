@@ -18,6 +18,28 @@ function photo_extensions_acceptees(): array
     return ['jpg', 'jpeg', 'png'];
 }
 
+// "/" et "*" sont interdits dans un nom de fichier Windows, mais 7013
+// references (~27% du catalogue) et 88 marques contiennent un "/" reel
+// (ex. reference "84306-02190/", marque "ZEXEL/BOSCH" pour une piece
+// compatible double-marque) - "*" est plus rare (157 references). Le
+// boss doit pouvoir les taper quand meme dans le nom du fichier : ces
+// deux caracteres sont remplacables par un marqueur reversible, jamais
+// vu dans aucune reference ou marque actuelle (verifie), reconverti a
+// l'identique avant la recherche en base - jamais de correspondance
+// approximative. Volontairement PAS de simple suppression du caractere
+// interdit : mesure sur le catalogue reel, ça creerait de vraies
+// collisions entre produits distincts (ex. ".11115-58070" avec et sans
+// le slash correspondent a 2 produits differents).
+function photo_marqueurs_caracteres_interdits(): array
+{
+    return ['~' => '/', '^' => '*'];
+}
+
+function photo_restaurer_caracteres_interdits(string $texte): string
+{
+    return strtr($texte, photo_marqueurs_caracteres_interdits());
+}
+
 /**
  * Analyse un nom de fichier - ancre depuis la FIN plutot que le debut :
  * une reference peut elle-meme contenir un underscore (deja vu dans le
@@ -54,6 +76,9 @@ function photo_parser_nom(string $nomFichier): ?array
     if ($reference === '' || $marquepiece === '') {
         return null;
     }
+
+    $reference = photo_restaurer_caracteres_interdits($reference);
+    $marquepiece = photo_restaurer_caracteres_interdits($marquepiece);
 
     return ['reference' => $reference, 'marquepiece' => $marquepiece, 'imgnbr' => $imgnbr];
 }
