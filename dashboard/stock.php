@@ -199,6 +199,31 @@
             return $ids === [] ? null : $ids[0];
         }
 
+        // Colonnes sans lesquelles le fichier n'a aucun sens pour l'import choisi.
+        // Une colonne Reference non reconnue donnait un intervalle de lignes vide,
+        // donc ZERO ligne traitee et un import annonce comme reussi : c'est
+        // exactement ce que voyait le boss avec le fichier ventes (voir
+        // import_format_normaliser_libelle). On refuse le fichier, avec la liste
+        // de ce qui a ete reconnu, plutot que de ne rien faire en silence.
+        function stock_exiger_colonnes(array $descripteur, array $champs, string $nomImport): void
+        {
+            $noms = ['REFERENCE' => 'Référence', 'DESIGNATION' => 'Désignation'];
+            $manquantes = [];
+            foreach ($champs as $champ) {
+                if (!isset($descripteur['colonnes'][$champ])) {
+                    $manquantes[] = '« ' . ($noms[$champ] ?? $champ) . ' »';
+                }
+            }
+            if ($manquantes) {
+                throw new ImportFormatException(
+                    (count($manquantes) > 1 ? 'Les colonnes ' : 'La colonne ') . implode(' et ', $manquantes)
+                    . (count($manquantes) > 1 ? ' sont introuvables' : ' est introuvable') . " dans ce fichier ($nomImport). "
+                    . 'Colonnes reconnues : ' . implode(', ', $descripteur['libelles_trouves']) . '. '
+                    . "Import annulé, rien n'a été écrit."
+                );
+            }
+        }
+
         // Les imports ventes/achats ecrivent tout "Stock Actuel" tel quel :
         // sans cette colonne, une lecture "vide" valait 0 et mettait le
         // stock de tous les produits listes a 0 sans le moindre avertissement
@@ -891,6 +916,8 @@
                     // dashboard/include/import_format.php).
                     $descripteur = import_format_detecter($sheet);
                     import_format_verifier_type($descripteur, $typeImport);
+                    $noms = ['stock' => 'stock complet', 'ventes' => 'ventes du jour', 'achats' => 'achats du jour'];
+                    stock_exiger_colonnes($descripteur, $typeImport === 'ventes' ? ['REFERENCE'] : ['REFERENCE', 'DESIGNATION'], $noms[$typeImport]);
 
                     $colRef = $descripteur['colonnes']['REFERENCE'] ?? null;
                     $colDesig = $descripteur['colonnes']['DESIGNATION'] ?? null;

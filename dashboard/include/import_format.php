@@ -21,15 +21,34 @@ class ImportFormatException extends Exception
 // différentes.
 function import_format_normaliser_libelle(string $texte): string
 {
-    $texte = trim($texte);
-    // Le signe degre ("N°") translitere de facon imprevisible selon la
-    // plateforme (parfois "deg", parfois disparait, parfois casse
-    // iconv) - autant le retirer explicitement avant toute autre etape.
-    $texte = str_replace(["\xC2\xB0", '°'], '', $texte);
-    $translit = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $texte);
-    if ($translit !== false) {
-        $texte = $translit;
-    }
+    // Table de repliement des accents EXPLICITE, volontairement sans iconv.
+    // iconv('ASCII//TRANSLIT') depend de la locale du processus et de la
+    // libc : sous PHP 7.4 la locale est heritee de l'environnement, donc
+    // UTF-8 en ligne de commande mais "C" sous le serveur web, ou un "e"
+    // accentue n'est plus replie et disparait. Consequence reelle :
+    // "Désignation", "Référence" et "Qté Vendue" devenaient "DSIGNATION",
+    // "RFRENCE" et "QTVENDUE", jamais reconnus, et l'import ventes (seul
+    // fichier a en-tetes accentues) parcourait ZERO ligne tout en annoncant
+    // un succes - alors que le meme fichier donnait 161 lignes depuis le
+    // terminal du serveur. ai/tools.php (ai_normalize_term) avait deja ecarte
+    // iconv pour cette raison ; meme regle ici.
+    static $repli = [
+        'à' => 'a', 'â' => 'a', 'ä' => 'a', 'á' => 'a', 'ã' => 'a', 'å' => 'a',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'î' => 'i', 'ï' => 'i', 'í' => 'i', 'ì' => 'i',
+        'ô' => 'o', 'ö' => 'o', 'ó' => 'o', 'ò' => 'o', 'õ' => 'o',
+        'ù' => 'u', 'û' => 'u', 'ü' => 'u', 'ú' => 'u',
+        'ç' => 'c', 'ñ' => 'n', 'ÿ' => 'y', 'œ' => 'oe', 'æ' => 'ae',
+        'À' => 'A', 'Â' => 'A', 'Ä' => 'A', 'Á' => 'A', 'Ã' => 'A', 'Å' => 'A',
+        'É' => 'E', 'È' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+        'Î' => 'I', 'Ï' => 'I', 'Í' => 'I', 'Ì' => 'I',
+        'Ô' => 'O', 'Ö' => 'O', 'Ó' => 'O', 'Ò' => 'O', 'Õ' => 'O',
+        'Ù' => 'U', 'Û' => 'U', 'Ü' => 'U', 'Ú' => 'U',
+        'Ç' => 'C', 'Ñ' => 'N', 'Œ' => 'OE', 'Æ' => 'AE',
+        // signe degre ("N°") : simplement retire
+        '°' => '',
+    ];
+    $texte = strtr(trim($texte), $repli);
     $texte = strtoupper($texte);
     $texte = preg_replace('/[^A-Z0-9]/', '', $texte);
     return $texte ?? '';
