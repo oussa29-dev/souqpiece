@@ -19,6 +19,15 @@
             exit;
         }
         require_once('database.php');
+        // Force le mode exception, comme ajouter-produit.php. Le fichier de
+        // connexion n'est pas versionne (chaque machine a le sien) et celui de
+        // la production ne fixe pas ce mode : sous PHP 7.4 le defaut est alors
+        // SILENT, une requete SQL refusee est ignoree sans message et l'import
+        // annonce quand meme "N produits mis a jour" (reproduit : une mise a
+        // jour refusee par la base etait comptee comme reussie). En mode
+        // exception, l'import s'arrete, la transaction est annulee et l'echec
+        // apparait a l'ecran et dans le journal.
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         include('include/menu.php');
      ?>
 
