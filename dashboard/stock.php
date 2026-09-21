@@ -189,6 +189,23 @@
             return $ids === [] ? null : $ids[0];
         }
 
+        // Les imports ventes/achats ecrivent tout "Stock Actuel" tel quel :
+        // sans cette colonne, une lecture "vide" valait 0 et mettait le
+        // stock de tous les produits listes a 0 sans le moindre avertissement
+        // cote achats (mesure sur un fichier de test). On refuse donc le
+        // fichier entier avant la moindre ecriture - et avant tout appel
+        // LLM de classification, qui serait paye pour rien.
+        function stock_exiger_colonne_stock_actuel(array $descripteur, string $nomImport): void
+        {
+            if (!isset($descripteur['colonnes']['STOCK_ACTUEL'])) {
+                throw new ImportFormatException(
+                    "La colonne « Stock Actuel » est introuvable dans ce fichier ($nomImport). "
+                    . 'Colonnes reconnues : ' . implode(', ', $descripteur['libelles_trouves']) . '. '
+                    . "Import annulé, rien n'a été écrit."
+                );
+            }
+        }
+
         function stock_afficher_rapport(int $crees, int $maj, array $erreurs, string $titreErreurs = 'Import terminé avec quelques erreurs :'): void
         {
             echo "<div class='result-message'>";
@@ -443,6 +460,7 @@
         // ---------------------------------------------------------------
         function stock_importer_ventes(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): void
         {
+            stock_exiger_colonne_stock_actuel($descripteur, 'ventes du jour');
             import_progress('Import des ventes du jour...', 20);
 
             $updatedCount = 0;
@@ -463,12 +481,19 @@
                     $anomalies[] = "Ligne $rowIndex: référence manquante, vente ignorée";
                     continue;
                 }
-                if ($stockActuelVal === null) {
-                    $anomalies[] = "Ligne $rowIndex: colonne Stock Actuel manquante pour $reference, vente ignorée";
+                if ($stockActuelVal === null || trim((string)$stockActuelVal) === '') {
+                    $anomalies[] = "Ligne $rowIndex: Stock Actuel vide pour $reference, vente ignorée";
                     continue;
                 }
 
                 $stockActuel = (int)import_format_nombre($stockActuelVal);
+                if ($stockActuel < 0) {
+                    // Stock negatif cote logiciel (ex. vente enregistree avant
+                    // l'entree en stock) : le site ne doit jamais stocker une
+                    // quantite negative - meme regle que le stock complet.
+                    $anomalies[] = "Ligne $rowIndex: stock actuel négatif ($stockActuel) pour $reference, ramené à 0";
+                    $stockActuel = 0;
+                }
                 // Tous les produits correspondants : un vrai doublon laisse
                 // de cote resterait affiche "disponible" alors que la piece
                 // est a 0 en magasin (bug remonte par le boss).
@@ -488,7 +513,7 @@
 
             $pdo->commit();
             import_progress('Import terminé.', 100);
-            stock_afficher_rapport(0, $updatedCount, $anomalies, 'Import terminé, quelques lignes non appliquées :');
+            stock_afficher_rapport(0, $updatedCount, $anomalies, 'Import terminé, quelques lignes à vérifier :');
         }
 
         // ---------------------------------------------------------------
@@ -498,6 +523,8 @@
         // ---------------------------------------------------------------
         function stock_importer_achats(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): void
         {
+            stock_exiger_colonne_stock_actuel($descripteur, 'achats du jour');
+
             $designationsSheet = [];
             for ($ligne = $premiereLigne; $ligne <= $derniereLigne; $ligne++) {
                 $texte = trim((string)(import_format_lire($sheet, $descripteur, $ligne, 'DESIGNATION') ?? ''));
@@ -535,8 +562,19 @@
                     $errors[] = "Ligne $rowIndex: référence manquante";
                     continue;
                 }
+                if ($stockActuelVal === null || trim((string)$stockActuelVal) === '') {
+                    // Une cellule vide valait 0 et mettait le produit hors
+                    // stock (ou creait un nouveau produit a quantite 0) sans
+                    // rien signaler : on ignore la ligne et on le dit.
+                    $errors[] = "Ligne $rowIndex: Stock Actuel vide pour $reference, ligne ignorée";
+                    continue;
+                }
 
                 $stockActuel = (int)import_format_nombre($stockActuelVal);
+                if ($stockActuel < 0) {
+                    $errors[] = "Ligne $rowIndex: stock actuel négatif ($stockActuel) pour $reference, ramené à 0";
+                    $stockActuel = 0;
+                }
                 $stock = $stockActuel > 0 ? 1 : 0;
 
                 // Tous les produits correspondants (doublons inclus), meme
