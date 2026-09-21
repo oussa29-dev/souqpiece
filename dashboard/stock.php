@@ -33,6 +33,7 @@
         require_once 'include/pvd_extraction.php';
         require_once 'include/import_format.php';
         require_once 'include/import_photos.php';
+        require_once 'include/import_journal.php';
 
         use PhpOffice\PhpSpreadsheet\IOFactory;
 
@@ -206,9 +207,18 @@
             }
         }
 
-        function stock_afficher_rapport(int $crees, int $maj, array $erreurs, string $titreErreurs = 'Import terminé avec quelques erreurs :'): void
+        // $lignesLues = nombre de lignes du fichier portant une reference. A 0,
+        // le fichier ne contenait rien d'exploitable : afficher "succes" en vert
+        // etait trompeur (cas reel du boss : un fichier ventes sans aucune
+        // vente donnait exactement le meme ecran qu'un import reussi, sans
+        // meme la ligne "produits mis a jour").
+        function stock_afficher_rapport(int $crees, int $maj, array $erreurs, string $titreErreurs = 'Import terminé avec quelques erreurs :', ?int $lignesLues = null): void
         {
             echo "<div class='result-message'>";
+            if ($lignesLues === 0) {
+                echo "<p style='color: #d35400;font-weight:bold;'>Aucune ligne exploitable trouvée dans ce fichier : rien n'a été importé. "
+                    . "Vérifiez que c'est le bon fichier (un export sans vente, sans achat ou sans stock est vide).</p>";
+            }
             if ($crees > 0) {
                 echo "<p style='color: green;'>$crees nouveaux produits ajoutés.</p>";
             }
@@ -216,7 +226,9 @@
                 echo "<p style='color: green;'>$maj produits mis à jour.</p>";
             }
             if (empty($erreurs)) {
-                echo "<p style='color: green;'>Import terminé avec succès.</p>";
+                if ($lignesLues !== 0) {
+                    echo "<p style='color: green;'>Import terminé avec succès.</p>";
+                }
             } else {
                 echo "<p style='color: orange;'>$titreErreurs</p><ul>";
                 foreach (array_slice($erreurs, 0, 300) as $erreur) {
@@ -236,8 +248,9 @@
         // reference absent du fichier est marque hors stock (Phase 2 du
         // plan). C'est le seul des 3 boutons qui declenche la reconciliation.
         // ---------------------------------------------------------------
-        function stock_importer_stock_complet(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): void
+        function stock_importer_stock_complet(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): array
         {
+            $lignesLues = 0;
             $designationsSheet = [];
             for ($ligne = $premiereLigne; $ligne <= $derniereLigne; $ligne++) {
                 $texte = trim((string)(import_format_lire($sheet, $descripteur, $ligne, 'DESIGNATION') ?? ''));
@@ -301,6 +314,7 @@
                     $errors[] = "Ligne $rowIndex: Référence manquante";
                     continue;
                 }
+                $lignesLues++;
                 if ($libelle === '') {
                     $errors[] = "Ligne $rowIndex: Libellé manquant pour la référence $reference";
                     continue;
@@ -439,18 +453,31 @@
                 "SELECT COUNT(*) FROM produit p WHERE p.stock = 1 AND NOT EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit)"
             )->fetchColumn();
 
-            import_progress('Import terminé.', 100);
+            import_progress($lignesLues === 0 ? 'Aucune ligne à importer.' : 'Import terminé.', 100);
 
-            stock_afficher_rapport($newProductsCount, $updatedProductsCount, $errors);
+            stock_afficher_rapport($newProductsCount, $updatedProductsCount, $errors, 'Import terminé avec quelques erreurs :', $lignesLues);
 
-            echo "<div class='result-message'>";
-            echo "<p style='color: green;'>$produitsZeroifies produit(s) absent(s) de ce fichier repassé(s) hors stock.</p>";
-            if ($sansReference > 0) {
-                echo "<p style='color: orange;'>$sansReference produit(s) disponibles du catalogue n'ont aucune référence enregistrée - "
-                    . "impossible de vérifier leur présence dans ce fichier, ils n'ont pas été touchés. "
-                    . "<a href='rapport-catalogue.php?vue=sans_reference' target='_blank'>Voir la liste complète</a>.</p>";
+            // Fichier sans aucune ligne exploitable : rien n'a ete importe, donc
+            // pas de bilan de reconciliation a afficher (ce serait un faux "0
+            // produit repasse hors stock" a cote d'un fichier vide).
+            if ($lignesLues > 0) {
+                echo "<div class='result-message'>";
+                echo "<p style='color: green;'>$produitsZeroifies produit(s) absent(s) de ce fichier repassé(s) hors stock.</p>";
+                if ($sansReference > 0) {
+                    echo "<p style='color: orange;'>$sansReference produit(s) disponibles du catalogue n'ont aucune référence enregistrée - "
+                        . "impossible de vérifier leur présence dans ce fichier, ils n'ont pas été touchés. "
+                        . "<a href='rapport-catalogue.php?vue=sans_reference' target='_blank'>Voir la liste complète</a>.</p>";
+                }
+                echo '</div>';
             }
-            echo '</div>';
+
+            return [
+                'lignes_lues' => $lignesLues,
+                'crees' => $newProductsCount,
+                'maj' => $updatedProductsCount,
+                'anomalies' => count($errors),
+                'detail' => $lignesLues > 0 ? "$produitsZeroifies produit(s) absent(s) du fichier repassé(s) hors stock" : null,
+            ];
         }
 
         // ---------------------------------------------------------------
@@ -458,11 +485,12 @@
         // directement la colonne "Stock Actuel" du fichier (deja le
         // resultat final apres la vente, aucune arithmetique a faire).
         // ---------------------------------------------------------------
-        function stock_importer_ventes(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): void
+        function stock_importer_ventes(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): array
         {
             stock_exiger_colonne_stock_actuel($descripteur, 'ventes du jour');
             import_progress('Import des ventes du jour...', 20);
 
+            $lignesLues = 0;
             $updatedCount = 0;
             $anomalies = [];
             $pdo->beginTransaction();
@@ -481,6 +509,7 @@
                     $anomalies[] = "Ligne $rowIndex: référence manquante, vente ignorée";
                     continue;
                 }
+                $lignesLues++;
                 if ($stockActuelVal === null || trim((string)$stockActuelVal) === '') {
                     $anomalies[] = "Ligne $rowIndex: Stock Actuel vide pour $reference, vente ignorée";
                     continue;
@@ -512,8 +541,10 @@
             }
 
             $pdo->commit();
-            import_progress('Import terminé.', 100);
-            stock_afficher_rapport(0, $updatedCount, $anomalies, 'Import terminé, quelques lignes à vérifier :');
+            import_progress($lignesLues === 0 ? 'Aucune ligne à importer.' : 'Import terminé.', 100);
+            stock_afficher_rapport(0, $updatedCount, $anomalies, 'Import terminé, quelques lignes à vérifier :', $lignesLues);
+
+            return ['lignes_lues' => $lignesLues, 'crees' => 0, 'maj' => $updatedCount, 'anomalies' => count($anomalies)];
         }
 
         // ---------------------------------------------------------------
@@ -521,9 +552,10 @@
         // en inventaire), sinon met a jour uniquement stock/quantite -
         // ne touche jamais le prix d'un produit deja existant.
         // ---------------------------------------------------------------
-        function stock_importer_achats(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): void
+        function stock_importer_achats(PDO $pdo, $sheet, array $descripteur, int $premiereLigne, int $derniereLigne): array
         {
             stock_exiger_colonne_stock_actuel($descripteur, 'achats du jour');
+            $lignesLues = 0;
 
             $designationsSheet = [];
             for ($ligne = $premiereLigne; $ligne <= $derniereLigne; $ligne++) {
@@ -562,6 +594,7 @@
                     $errors[] = "Ligne $rowIndex: référence manquante";
                     continue;
                 }
+                $lignesLues++;
                 if ($stockActuelVal === null || trim((string)$stockActuelVal) === '') {
                     // Une cellule vide valait 0 et mettait le produit hors
                     // stock (ou creait un nouveau produit a quantite 0) sans
@@ -653,8 +686,10 @@
             }
 
             $pdo->commit();
-            import_progress('Import terminé.', 100);
-            stock_afficher_rapport($newProductsCount, $updatedProductsCount, $errors);
+            import_progress($lignesLues === 0 ? 'Aucune ligne à importer.' : 'Import terminé.', 100);
+            stock_afficher_rapport($newProductsCount, $updatedProductsCount, $errors, 'Import terminé avec quelques erreurs :', $lignesLues);
+
+            return ['lignes_lues' => $lignesLues, 'crees' => $newProductsCount, 'maj' => $updatedProductsCount, 'anomalies' => count($errors)];
         }
 
         // ---------------------------------------------------------------
@@ -663,7 +698,7 @@
         // voir PLAN_IMPORT_PHOTOS.md. Ne cree jamais de produit - une
         // reference/marque introuvable est une anomalie a signaler.
         // ---------------------------------------------------------------
-        function stock_importer_photos(PDO $pdo, string $cheminZip): void
+        function stock_importer_photos(PDO $pdo, string $cheminZip): array
         {
             $dossierTemp = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'souqpiece_photos_' . uniqid('', true);
 
@@ -671,8 +706,9 @@
                 $fichiers = photo_extraire_zip_securise($cheminZip, $dossierTemp);
             } catch (ImportPhotosException $e) {
                 echo "<p style='color: red;'>" . htmlspecialchars($e->getMessage()) . "</p>";
-                return;
+                return ['lignes_lues' => 0, 'crees' => 0, 'maj' => 0, 'anomalies' => 0, 'statut' => 'echec', 'message' => $e->getMessage()];
             }
+            $lignesLues = count($fichiers);
 
             import_progress('Analyse des ' . count($fichiers) . ' fichier(s) du zip...', 5);
 
@@ -757,14 +793,22 @@
 
             photo_supprimer_dossier($dossierTemp);
 
-            import_progress('Import terminé.', 100);
+            import_progress($lignesLues === 0 ? 'Aucune photo à importer.' : 'Import terminé.', 100);
 
             echo "<div class='result-message'>";
+            if ($lignesLues === 0) {
+                // Meme defaut que les imports Excel : un zip sans aucune image
+                // exploitable affichait "succes" en vert.
+                echo "<p style='color: #d35400;font-weight:bold;'>Aucune photo trouvée dans ce zip : rien n'a été importé. "
+                    . "Vérifiez son contenu (fichiers .jpg, .jpeg ou .png nommés REFERENCE_MARQUEPIECE_N).</p>";
+            }
             if ($imagesAppliquees > 0) {
                 echo "<p style='color: green;'>$imagesAppliquees photo(s) appliquée(s) sur " . count($produitsTouches) . " produit(s).</p>";
             }
             if (empty($erreurs)) {
-                echo "<p style='color: green;'>Import terminé avec succès.</p>";
+                if ($lignesLues !== 0) {
+                    echo "<p style='color: green;'>Import terminé avec succès.</p>";
+                }
             } else {
                 echo "<p style='color: orange;'>Import terminé avec quelques anomalies :</p><ul>";
                 foreach (array_slice($erreurs, 0, 300) as $erreur) {
@@ -776,15 +820,30 @@
                 echo '</ul>';
             }
             echo '</div>';
+
+            return ['lignes_lues' => $lignesLues, 'crees' => 0, 'maj' => $imagesAppliquees, 'anomalies' => count($erreurs)];
         }
 
         if (isset($_POST['importer_photos'])) {
             if (isset($_FILES['fichier_photos']) && $_FILES['fichier_photos']['error'] == UPLOAD_ERR_OK) {
                 set_time_limit(600);
                 import_demarrer_affichage();
+                // Trace ecrite AVANT tout traitement : elle survit meme si la
+                // requete meurt en route (voir stock_journal_surveiller_arret).
+                $journalId = stock_journal_debut($pdo, 'photos', (string)$_FILES['fichier_photos']['name'], (int)$_FILES['fichier_photos']['size']);
+                stock_journal_surveiller_arret($pdo, $journalId);
                 try {
-                    stock_importer_photos($pdo, $_FILES['fichier_photos']['tmp_name']);
-                } catch (Exception $e) {
+                    $stats = stock_importer_photos($pdo, $_FILES['fichier_photos']['tmp_name']);
+                    if (isset($stats['statut'])) {
+                        stock_journal_fin($pdo, $journalId, $stats['statut'], $stats, $stats['message'] ?? null);
+                    } else {
+                        stock_journal_fin($pdo, $journalId, $stats['lignes_lues'] === 0 ? 'vide' : 'termine', $stats);
+                    }
+                } catch (Throwable $e) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    stock_journal_fin($pdo, $journalId, 'echec', [], $e->getMessage());
                     import_progress('Import annulé.', 100);
                     echo "<p style='color: red;'>Erreur lors de l'import : " . htmlspecialchars($e->getMessage()) . "</p>";
                 }
@@ -805,6 +864,11 @@
                 // reactives a chaque tick de progression (voir import_progress).
                 set_time_limit(600);
                 import_demarrer_affichage();
+                // Trace ecrite AVANT tout traitement (et avant la transaction de
+                // l'import) : elle survit meme si l'import est annule ou si la
+                // requete meurt en route (voir stock_journal_surveiller_arret).
+                $journalId = stock_journal_debut($pdo, $typeImport, (string)$_FILES['fichier']['name'], (int)$_FILES['fichier']['size']);
+                stock_journal_surveiller_arret($pdo, $journalId);
 
                 try {
                     $spreadsheet = IOFactory::load($fichier_tmp);
@@ -838,19 +902,26 @@
                     }
 
                     if ($typeImport === 'stock') {
-                        stock_importer_stock_complet($pdo, $sheet, $descripteur, $premiereLigne, $derniereLigneUtile);
+                        $stats = stock_importer_stock_complet($pdo, $sheet, $descripteur, $premiereLigne, $derniereLigneUtile);
                     } elseif ($typeImport === 'ventes') {
-                        stock_importer_ventes($pdo, $sheet, $descripteur, $premiereLigne, $derniereLigneUtile);
+                        $stats = stock_importer_ventes($pdo, $sheet, $descripteur, $premiereLigne, $derniereLigneUtile);
                     } else {
-                        stock_importer_achats($pdo, $sheet, $descripteur, $premiereLigne, $derniereLigneUtile);
+                        $stats = stock_importer_achats($pdo, $sheet, $descripteur, $premiereLigne, $derniereLigneUtile);
                     }
+                    stock_journal_fin($pdo, $journalId, $stats['lignes_lues'] === 0 ? 'vide' : 'termine', $stats);
                 } catch (ImportFormatException $e) {
+                    stock_journal_fin($pdo, $journalId, 'annule', [], $e->getMessage());
                     import_progress('Import annulé.', 100);
                     echo "<p style='color: red;'>" . htmlspecialchars($e->getMessage()) . "</p>";
-                } catch (Exception $e) {
+                } catch (Throwable $e) {
+                    // Throwable et non Exception : une Error PHP (fonction
+                    // inexistante sur la version du serveur, TypeError...) tuait
+                    // la requete sans aucun message - c'est ce qui a cache le bug
+                    // PHP 7.4 de l'import photos derriere une barre figee.
                     if ($pdo->inTransaction()) {
                         $pdo->rollBack();
                     }
+                    stock_journal_fin($pdo, $journalId, 'echec', [], $e->getMessage());
                     import_progress('Import annulé.', 100);
                     echo "<p style='color: red;'>Erreur lors de l'import : " . htmlspecialchars($e->getMessage()) . "</p>";
                 }
@@ -858,6 +929,10 @@
                 echo "<p style='color: red;'>Veuillez télécharger un fichier valide.</p>";
             }
         }
+
+        // Historique des derniers imports (voir db/import_journal.sql), juste
+        // sous le resultat de l'import en cours et au-dessus des formulaires.
+        stock_journal_afficher($pdo);
 
     ?>
 
