@@ -179,9 +179,15 @@
             // retournes (des doublons exacts doivent bouger ensemble), les
             // autres marques sont de vrais produits differents et ne
             // doivent jamais etre touches.
+            // Insensible a la casse et aux espaces multiples, comme la
+            // collation MySQL utilisee partout ailleurs (onglet Doublons
+            // compris) - sinon "org d" et "ORG D" ne bougent jamais ensemble.
+            $normaliserMarque = function (string $m): string {
+                return strtoupper(preg_replace('/\s+/', ' ', trim($m)));
+            };
             $correspondants = [];
             foreach ($produitsDistincts as $idProduit => $marquepiece) {
-                if (trim($marquepiece) == trim($marque)) {
+                if ($normaliserMarque((string)$marquepiece) === $normaliserMarque($marque)) {
                     $correspondants[] = (int)$idProduit;
                 }
             }
@@ -396,8 +402,11 @@
                     try {
                         $classification = $classifications[$libelle] ?? null;
                         $classificationResolue = $classification !== null && $classification['statut'] === 'resolu';
-                        $idCategorie = $classificationResolue ? $classification['id_categorie'] : 0;
-                        $idSousCategorie = $classificationResolue ? $classification['id_sous_categorie'] : 0;
+                        // Une classification "resolu" peut avoir une categorie
+                        // sans sous-categorie (316 mesurees) - produit.id_sous_categorie
+                        // est NOT NULL, 0 = "aucune", comme dans pvd-decisions.php.
+                        $idCategorie = $classificationResolue ? ($classification['id_categorie'] ?? 0) : 0;
+                        $idSousCategorie = $classificationResolue ? ($classification['id_sous_categorie'] ?? 0) : 0;
 
                         $insertProductStmt = $pdo->prepare('INSERT INTO produit (libelle, marquepiece, prix, stock, quantite, id_categorie, id_sous_categorie, derniere_verification_stock) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())');
                         $insertProductStmt->execute([$libelle, $marque, $prix, $stock, $quant, $idCategorie, $idSousCategorie]);
@@ -682,8 +691,8 @@
 
                     $classification = $classifications[$libelle] ?? null;
                     $classificationResolue = $classification !== null && $classification['statut'] === 'resolu';
-                    $idCategorie = $classificationResolue ? $classification['id_categorie'] : 0;
-                    $idSousCategorie = $classificationResolue ? $classification['id_sous_categorie'] : 0;
+                    $idCategorie = $classificationResolue ? ($classification['id_categorie'] ?? 0) : 0;
+                    $idSousCategorie = $classificationResolue ? ($classification['id_sous_categorie'] ?? 0) : 0;
 
                     $insertProductStmt = $pdo->prepare('INSERT INTO produit (libelle, marquepiece, prix, stock, quantite, id_categorie, id_sous_categorie) VALUES (?, ?, ?, ?, ?, ?, ?)');
                     $insertProductStmt->execute([$libelle, $marque, $prix, $stock, $stockActuel, $idCategorie, $idSousCategorie]);
