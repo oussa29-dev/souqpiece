@@ -74,6 +74,17 @@
                 'count' => "SELECT COUNT(*) FROM produit p WHERE p.stock = 1 AND NOT EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit)",
                 'list'  => "SELECT p.* FROM produit p WHERE p.stock = 1 AND NOT EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit) ORDER BY p.id_produit DESC LIMIT ? OFFSET ?",
             ],
+            // Fiable seulement a partir du premier import "Stock complet"
+            // lance apres l'ajout de derniere_verification_stock (voir
+            // db/produit_derniere_verification_stock.sql) - avant ca la
+            // colonne est NULL pour tout le catalogue et cet onglet
+            // n'a aucun sens.
+            'produits_fantomes' => [
+                'label' => 'Produits fantômes',
+                'desc'  => "Produits disponibles, avec une référence enregistrée, mais que le dernier import « Stock complet » n'a jamais retrouvée dans le fichier du fournisseur - probablement absents du logiciel de gestion du stock. Différent de « Sans référence » : ici la référence existe, elle n'a simplement jamais été confirmée.",
+                'count' => "SELECT COUNT(*) FROM produit p WHERE p.stock = 1 AND p.derniere_verification_stock IS NULL AND EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit)",
+                'list'  => "SELECT p.* FROM produit p WHERE p.stock = 1 AND p.derniere_verification_stock IS NULL AND EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit) ORDER BY p.id_produit DESC LIMIT ? OFFSET ?",
+            ],
             // Vue groupee - traitee a part (voir plus bas) car sa pagination
             // se fait par GROUPE et non par ligne comme les 6 vues ci-dessus.
             // 'count' reste une simple requete compatible avec la boucle

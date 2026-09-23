@@ -25,7 +25,7 @@
     // Same whitelisted-view redirect as sup-produit.php - keeps the admin
     // on the same tab/page instead of landing on produit.php. sans_reference
     // et ref_doublons manquaient ici depuis leur ajout.
-    $vuesValides = ['sans_vehicule', 'sans_categorie', 'doublons', 'prix', 'image', 'sans_reference', 'ref_doublons', 'ref_variantes'];
+    $vuesValides = ['sans_vehicule', 'sans_categorie', 'doublons', 'prix', 'image', 'sans_reference', 'ref_doublons', 'ref_variantes', 'produits_fantomes'];
     if (isset($_POST['vue']) && in_array($_POST['vue'], $vuesValides, true)) {
         $page = isset($_POST['page']) ? (int)$_POST['page'] : 1;
         $tous = (isset($_POST['tous']) && in_array($_POST['vue'], ['ref_doublons', 'ref_variantes'], true)) ? '&tous=1' : '';

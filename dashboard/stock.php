@@ -371,7 +371,12 @@
                 $matchingProductIds = stock_trouver_produits($pdo, $reference, $marque);
 
                 if ($matchingProductIds !== []) {
-                    $updateStmt = $pdo->prepare('UPDATE produit SET prix = ?, stock = ?, quantite = ? WHERE id_produit = ?');
+                    // derniere_verification_stock marque qu'une reference a
+                    // reellement ete vue dans un fichier Stock complet -
+                    // seule facon fiable de distinguer plus tard "en rupture"
+                    // de "absent du logiciel du fournisseur" (produit jamais
+                    // reconfirme par aucun import).
+                    $updateStmt = $pdo->prepare('UPDATE produit SET prix = ?, stock = ?, quantite = ?, derniere_verification_stock = NOW() WHERE id_produit = ?');
                     $classificationExistant = $classifications[$libelle] ?? null;
                     foreach ($matchingProductIds as $matchingProductId) {
                         $updateStmt->execute([$prix, $stock, $quant, $matchingProductId]);
@@ -394,7 +399,7 @@
                         $idCategorie = $classificationResolue ? $classification['id_categorie'] : 0;
                         $idSousCategorie = $classificationResolue ? $classification['id_sous_categorie'] : 0;
 
-                        $insertProductStmt = $pdo->prepare('INSERT INTO produit (libelle, marquepiece, prix, stock, quantite, id_categorie, id_sous_categorie) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                        $insertProductStmt = $pdo->prepare('INSERT INTO produit (libelle, marquepiece, prix, stock, quantite, id_categorie, id_sous_categorie, derniere_verification_stock) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())');
                         $insertProductStmt->execute([$libelle, $marque, $prix, $stock, $quant, $idCategorie, $idSousCategorie]);
                         $newProductId = $pdo->lastInsertId();
 
