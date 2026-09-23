@@ -23,11 +23,13 @@
     }
 
     // Same whitelisted-view redirect as sup-produit.php - keeps the admin
-    // on the same tab/page instead of landing on produit.php.
-    $vuesValides = ['sans_vehicule', 'sans_categorie', 'doublons', 'prix', 'image'];
+    // on the same tab/page instead of landing on produit.php. sans_reference
+    // et ref_doublons manquaient ici depuis leur ajout.
+    $vuesValides = ['sans_vehicule', 'sans_categorie', 'doublons', 'prix', 'image', 'sans_reference', 'ref_doublons', 'ref_variantes'];
     if (isset($_POST['vue']) && in_array($_POST['vue'], $vuesValides, true)) {
         $page = isset($_POST['page']) ? (int)$_POST['page'] : 1;
-        header('location:../rapport-catalogue.php?vue=' . urlencode($_POST['vue']) . '&page=' . $page);
+        $tous = (isset($_POST['tous']) && in_array($_POST['vue'], ['ref_doublons', 'ref_variantes'], true)) ? '&tous=1' : '';
+        header('location:../rapport-catalogue.php?vue=' . urlencode($_POST['vue']) . '&page=' . $page . $tous);
     } else {
         header('location:../rapport-catalogue.php');
     }
