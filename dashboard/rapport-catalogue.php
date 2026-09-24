@@ -81,9 +81,9 @@
             // n'a aucun sens.
             'produits_fantomes' => [
                 'label' => 'Produits fantômes',
-                'desc'  => "Produits disponibles, avec une référence enregistrée, mais que le dernier import « Stock complet » n'a jamais retrouvée dans le fichier du fournisseur - probablement absents du logiciel de gestion du stock. Différent de « Sans référence » : ici la référence existe, elle n'a simplement jamais été confirmée. La dernière colonne montre, quand il existe, un autre produit avec la même référence que l'import a bien retrouvé (souvent la même pièce sous une marque écrite autrement, ex. TAIHO / TAHIO) : garder la fiche la plus complète et supprimer l'autre.",
+                'desc'  => "Produits disponibles, avec une référence enregistrée, mais que le dernier import « Stock complet » n'a jamais retrouvée dans le fichier du fournisseur - probablement absents du logiciel de gestion du stock. Différent de « Sans référence » : ici la référence existe, elle n'a simplement jamais été confirmée.",
                 'count' => "SELECT COUNT(*) FROM produit p WHERE p.stock = 1 AND p.derniere_verification_stock IS NULL AND EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit)",
-                'list'  => "SELECT p.*, (SELECT CONCAT_WS('|', t.id_produit, t.marquepiece, COALESCE(t.quantite, 0)) FROM reference r1 JOIN reference r2 ON TRIM(r2.reference) = TRIM(r1.reference) AND r2.id_produit <> r1.id_produit JOIN produit t ON t.id_produit = r2.id_produit AND t.derniere_verification_stock IS NOT NULL WHERE r1.id_produit = p.id_produit LIMIT 1) AS jumeau FROM produit p WHERE p.stock = 1 AND p.derniere_verification_stock IS NULL AND EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit) ORDER BY p.id_produit DESC LIMIT ? OFFSET ?",
+                'list'  => "SELECT p.* FROM produit p WHERE p.stock = 1 AND p.derniere_verification_stock IS NULL AND EXISTS (SELECT 1 FROM reference r WHERE r.id_produit = p.id_produit) ORDER BY p.id_produit DESC LIMIT ? OFFSET ?",
             ],
             // Vue groupee - traitee a part (voir plus bas) car sa pagination
             // se fait par GROUPE et non par ligne comme les 6 vues ci-dessus.
@@ -140,7 +140,6 @@
         // est de corriger une reference, pas de supprimer un produit (voir
         // le texte de l'onglet et PLAN_RAPPORT_CATALOGUE_EXTENSIONS.md).
         $masquerSelection = $estRefVariantes;
-        $estFantomes = ($vue === 'produits_fantomes');
 
         if ($vueGroupee) {
             $groupesParPage = 15;
@@ -271,10 +270,6 @@
                         <?php if ($vueGroupee): ?>
                             <th>référence</th>
                         <?php endif; ?>
-                        <?php if ($estFantomes): ?>
-                            <th>marque pièce</th>
-                            <th>même référence, mis à jour par l'import</th>
-                        <?php endif; ?>
                         <th>Prix</th>
                         <th>marque</th>
                         <th>modele</th>
@@ -290,7 +285,7 @@
                 <tbody>
                 <?php
                     if (empty($produits)) {
-                        echo '<tr><td colspan="14">Rien à afficher pour cette vue.</td></tr>';
+                        echo '<tr><td colspan="12">Rien à afficher pour cette vue.</td></tr>';
                     } else {
                         $rangPrecedent = null;
                         $indexGroupe = 0;
@@ -342,11 +337,6 @@
                             <td><?= htmlspecialchars($produit['libelle']) ?></td>
                             <?php if ($vueGroupee): ?>
                                 <td><?= htmlspecialchars($produit['reference_affichee']) ?></td>
-                            <?php endif; ?>
-                            <?php if ($estFantomes): ?>
-                                <td><?= htmlspecialchars($produit['marquepiece']) ?></td>
-                                <?php $jumeau = $produit['jumeau'] !== null ? explode('|', $produit['jumeau'], 3) : null; ?>
-                                <td><?php if ($jumeau): ?><a href="ajouter-produit.php?id=<?= (int)$jumeau[0] ?>"><?= htmlspecialchars($jumeau[1]) ?></a> (#<?= (int)$jumeau[0] ?>, qté <?= (int)$jumeau[2] ?>)<?php else: ?>—<?php endif; ?></td>
                             <?php endif; ?>
                             <td><span class="spanGreen"><?= (int)$produit['prix'] ?> DA</span></td>
                             <td><?= htmlspecialchars($marque) ?></td>
