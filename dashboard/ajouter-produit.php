@@ -39,6 +39,7 @@
 
         require_once('database.php');
         require_once('include/pvd_extraction.php');
+        require_once('include/photos_produit.php');
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
         include('include/menu.php');
@@ -457,27 +458,7 @@
     
                     <!--========img================-->
     
-                    <label for="image_produit">image 1</label>
-                    <input type="file" name="img_produit">    
-                    <label for="image_produit2">image 2</label>
-                    <input type="file" name="img_produit2">
-                    <label for="image_produit3">image 3</label>
-                    <input type="file" name="img_produit3"><br>
-                    <label for="image_produit3">image 4</label>
-                    <input type="file" name="img_produit4">
-                    <label for="image_produit3">image 5</label>
-                    <input type="file" name="img_produit5">
-                    <label for="image_produit3">image 6</label>
-                    <input type="file" name="img_produit6"><br>
-                    <label for="image_produit3">image 7</label>
-                    <input type="file" name="img_produit7">
-                    <label for="image_produit3">image 8</label>
-                    <input type="file" name="img_produit8">
-                    <label for="image_produit3">image 9</label>
-                    <input type="file" name="img_produit9"><br>
-                    <label for="image_produit3">image 10</label>
-                    <input type="file" name="img_produit10">
-                    <br>
+                    <?php photos_produit_afficher($produit); ?>
 
                     <input type="submit" value="modifier" name="modifier">
     
@@ -1063,47 +1044,7 @@
 
                 <!--========img================-->
 
-                <label for="image_produit">image 1</label>
-
-                <input type="file" name="img_produit">
-
-                <label for="image_produit2">image 2</label>
-
-                <input type="file" name="img_produit2">
-
-                <label for="image_produit3">image 3</label>
-
-                <input type="file" name="img_produit3"><br>
-
-                <label for="image_produit3">image 4</label>
-
-                <input type="file" name="img_produit4">
-
-                <label for="image_produit3">image 5</label>
-
-                <input type="file" name="img_produit5">
-
-                <label for="image_produit3">image 6</label>
-
-                <input type="file" name="img_produit6"><br>
-
-                <label for="image_produit3">image 7</label>
-
-                <input type="file" name="img_produit7">
-
-                <label for="image_produit3">image 8</label>
-
-                <input type="file" name="img_produit8">
-
-                <label for="image_produit3">image 9</label>
-
-                <input type="file" name="img_produit9"><br>
-
-                <label for="image_produit3">image 10</label>
-
-                <input type="file" name="img_produit10">
-
-                <br>
+                <?php photos_produit_afficher(null); ?>
 
                 <input type="submit" value="ajouter" name="ajouter">
 
