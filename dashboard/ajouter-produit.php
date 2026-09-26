@@ -40,6 +40,16 @@
         require_once('database.php');
         require_once('include/pvd_extraction.php');
         require_once('include/photos_produit.php');
+
+        // La ligne "Voiture" vide du formulaire poste la valeur litterale
+        // "modele" (option "Selectionner un modele") : !empty() la prenait
+        // pour un vehicule choisi, la validation "au moins un vehicule" ne
+        // bloquait jamais, et l'INSERT dans pvd echouait sur la cle etrangere
+        // vers voiture. Seul un identifiant numerique positif est un choix.
+        function modele_choisi($valeur): bool
+        {
+            return ctype_digit((string)$valeur) && (int)$valeur > 0;
+        }
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
         include('include/menu.php');
@@ -125,7 +135,7 @@
 
                 $genericCoche = isset($_POST['produit_generique']);
                 $modelesExistants = array_filter($_POST['modele_existing'] ?? [], fn($v) => !empty($v));
-                $modelesNouveaux = array_filter($_POST['modele'] ?? [], fn($v) => !empty($v));
+                $modelesNouveaux = array_filter($_POST['modele'] ?? [], 'modele_choisi');
                 if (!$genericCoche && empty($modelesExistants) && empty($modelesNouveaux)) {
                     $erreurs[] = 'Sélectionnez au moins un véhicule, ou cochez "Produit générique".';
                 }
@@ -484,7 +494,6 @@
                     // chemin d'ecriture.
                     $quantite = isset($_POST['quantite']) && $_POST['quantite'] !== '' ? (int)$_POST['quantite'] : 0;
                     $stock = $quantite > 0 ? 1 : 0;
-                    $ref = $_POST['ref'];
                     $paysAutreProduit = trim($_POST['pays_origine_produit_autre'] ?? '');
                     $paysProduit = $paysAutreProduit !== ''
                         ? strtoupper($paysAutreProduit)
@@ -744,7 +753,7 @@
                         }
                         if (!empty($modeles_new)) {
                             foreach ($modeles_new as $index => $newMod) {
-                                if (!empty($newMod)) {
+                                if (modele_choisi($newMod)) {
                                     // New row, nothing to preserve - null is correct here.
                                     [$marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, (int)$newMod, $libelle, $marquepiece, null, $paysProduit);
                                     $sqlVoi = 'INSERT INTO pvd (id_produit,id_voiture,description,marque_texte,notes_libres) VALUES (?, ?, ?, ?, ?)';
@@ -798,7 +807,7 @@
             }
 
             $genericCoche = isset($_POST['produit_generique']);
-            $modelesNouveaux = array_filter($_POST['modele'] ?? [], fn($v) => !empty($v));
+            $modelesNouveaux = array_filter($_POST['modele'] ?? [], 'modele_choisi');
             if (!$genericCoche && empty($modelesNouveaux)) {
                 $erreurs[] = 'Sélectionnez au moins un véhicule, ou cochez "Produit générique".';
             }
@@ -1157,7 +1166,7 @@
 
                         if (isset($_POST['modele']) && is_array($_POST['modele'])) {
                             foreach ($_POST['modele'] as $index => $modele) {
-                                if (empty($modele)) {
+                                if (!modele_choisi($modele)) {
                                     continue;
                                 }
                                 [$marqueTexte, $pays, $notes, $description] = pvd_lire_champs_structures($pdo, (int)$modele, $libelle, $marquepiece, $paysProduit);
