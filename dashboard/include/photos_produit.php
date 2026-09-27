@@ -32,6 +32,11 @@ function photos_produit_afficher(?array $produit): void
         .ph-annuler{display:none;position:absolute;top:6px;right:6px;width:26px;height:26px;border:none;border-radius:50%;background:rgba(18,18,18,.75);color:#fff;font-size:15px;line-height:26px;padding:0;cursor:pointer}
         .ph-slot.ph-nouveau .ph-annuler{display:block}
         .page-voiture form .ph-slot input[type="file"]{position:absolute;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;pointer-events:none}
+        .ph-supprimer-lien{background:none;border:none;padding:0;font-size:12px;color:#a00707;text-decoration:underline;cursor:pointer}
+        .ph-slot.ph-a-supprimer .ph-cadre{border-color:#a00707;opacity:.4}
+        .ph-slot.ph-a-supprimer .ph-etat{color:#a00707}
+        .ph-slot:not(.ph-a-image) .ph-supprimer-lien{display:none}
+        .ph-slot.ph-nouveau .ph-supprimer-lien{display:none}
     </style>
     <div class="ph-bloc">
         <p class="ph-titre">Photos du produit</p>
@@ -39,7 +44,7 @@ function photos_produit_afficher(?array $produit): void
             La photo 1 est l'image principale affichée dans les listes.
             Cliquer sur un emplacement pour choisir un fichier.
             <?= $produit !== null
-                ? "Sur une photo existante, le nouveau fichier la remplacera à l'enregistrement ; un emplacement non touché reste inchangé."
+                ? "Sur une photo existante, le nouveau fichier la remplacera à l'enregistrement ; un emplacement non touché reste inchangé. « Supprimer cette photo » l'efface définitivement à l'enregistrement."
                 : "Un emplacement laissé vide reste sans photo." ?>
         </p>
         <div class="ph-grille">
@@ -55,11 +60,17 @@ function photos_produit_afficher(?array $produit): void
                     </label>
                     <button type="button" class="ph-annuler" title="Annuler ce fichier" aria-label="Annuler le fichier choisi pour la photo <?= $n ?>">&times;</button>
                     <input type="file" id="ph-input-<?= $n ?>" name="<?= $champ ?>" accept="image/*">
+                    <?php if ($existe): ?>
+                        <input type="checkbox" class="ph-case-supprimer" id="ph-supprimer-<?= $n ?>" name="supprimer_photo[<?= $n ?>]" value="1" style="display:none">
+                    <?php endif; ?>
                     <div class="ph-ligne">
                         <span class="ph-nom">Photo <?= $n ?></span>
                         <?php if ($n === 1): ?><span class="ph-badge" style="background:#121212">Principale</span><?php endif; ?>
                     </div>
                     <div class="ph-etat"><?= $existe ? 'Enregistrée' : 'Vide' ?></div>
+                    <?php if ($existe): ?>
+                        <button type="button" class="ph-supprimer-lien">Supprimer cette photo</button>
+                    <?php endif; ?>
                 </div>
             <?php endfor; ?>
         </div>
@@ -71,6 +82,8 @@ function photos_produit_afficher(?array $produit): void
                 var img = slot.querySelector('.ph-cadre img');
                 var etat = slot.querySelector('.ph-etat');
                 var annuler = slot.querySelector('.ph-annuler');
+                var caseSupprimer = slot.querySelector('.ph-case-supprimer');
+                var lienSupprimer = slot.querySelector('.ph-supprimer-lien');
                 var existe = slot.getAttribute('data-existe') === '1';
                 var srcInitial = img.getAttribute('src');
                 var urlLocale = null;
@@ -102,11 +115,25 @@ function photos_produit_afficher(?array $produit): void
                     if (urlLocale) { URL.revokeObjectURL(urlLocale); }
                     urlLocale = URL.createObjectURL(fichier);
                     img.src = urlLocale;
+                    // Un nouveau fichier remplace de toute facon l'ancienne
+                    // photo a l'enregistrement - la case "supprimer" n'a
+                    // alors plus de sens.
+                    if (caseSupprimer) { caseSupprimer.checked = false; }
+                    slot.classList.remove('ph-a-supprimer');
                     slot.classList.add('ph-a-image', 'ph-nouveau');
                     etat.textContent = (existe ? 'Remplace : ' : 'Nouvelle : ') + fichier.name;
                     etat.title = fichier.name;
                 });
                 annuler.addEventListener('click', restaurer);
+
+                if (lienSupprimer && caseSupprimer) {
+                    lienSupprimer.addEventListener('click', function () {
+                        caseSupprimer.checked = !caseSupprimer.checked;
+                        slot.classList.toggle('ph-a-supprimer', caseSupprimer.checked);
+                        lienSupprimer.textContent = caseSupprimer.checked ? 'Annuler la suppression' : 'Supprimer cette photo';
+                        etat.textContent = caseSupprimer.checked ? 'Sera supprimée à l\'enregistrement' : 'Enregistrée';
+                    });
+                }
             });
         })();
     </script>

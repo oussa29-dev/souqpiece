@@ -528,6 +528,21 @@
 
                     }
 
+                    // Efface le fichier d'une photo existante remplacee par
+                    // "supprimer" (jamais appelee quand un nouveau fichier a
+                    // ete envoye : $updateImgN est verifie en premier et
+                    // remplace deja l'ancien fichier sans jamais l'effacer).
+                    function supprimerFichierImage(string $nomFichier): void
+                    {
+                        if ($nomFichier === '') {
+                            return;
+                        }
+                        $chemin = '../img/produit/' . $nomFichier;
+                        if (is_file($chemin)) {
+                            unlink($chemin);
+                        }
+                    }
+
                     $img = uploadImage('img_produit');
                     $img2 = uploadImage('img_produit2');
                     $img3 = uploadImage('img_produit3');
@@ -562,6 +577,12 @@
 
                             $params[] = $img;
 
+                        } elseif (!empty($_POST['supprimer_photo'][1])) {
+
+                            supprimerFichierImage($produit['img1'] ?? '');
+                            $sqlModifier .= ', img1=?';
+                            $params[] = '';
+
                         }
 
                         if ($updateImg2) {
@@ -569,6 +590,12 @@
                             $sqlModifier .= ', img2=?';
 
                             $params[] = $img2;
+
+                        } elseif (!empty($_POST['supprimer_photo'][2])) {
+
+                            supprimerFichierImage($produit['img2'] ?? '');
+                            $sqlModifier .= ', img2=?';
+                            $params[] = '';
 
                         }
 
@@ -578,6 +605,12 @@
 
                             $params[] = $img3;
 
+                        } elseif (!empty($_POST['supprimer_photo'][3])) {
+
+                            supprimerFichierImage($produit['img3'] ?? '');
+                            $sqlModifier .= ', img3=?';
+                            $params[] = '';
+
                         }
 
                         if ($updateImg4) {
@@ -585,6 +618,12 @@
                             $sqlModifier .= ', img4=?';
 
                             $params[] = $img4;
+
+                        } elseif (!empty($_POST['supprimer_photo'][4])) {
+
+                            supprimerFichierImage($produit['img4'] ?? '');
+                            $sqlModifier .= ', img4=?';
+                            $params[] = '';
 
                         }
 
@@ -594,6 +633,12 @@
 
                             $params[] = $img5;
 
+                        } elseif (!empty($_POST['supprimer_photo'][5])) {
+
+                            supprimerFichierImage($produit['img5'] ?? '');
+                            $sqlModifier .= ', img5=?';
+                            $params[] = '';
+
                         }
 
                         if ($updateImg6) {
@@ -601,6 +646,12 @@
                             $sqlModifier .= ', img6=?';
 
                             $params[] = $img6;
+
+                        } elseif (!empty($_POST['supprimer_photo'][6])) {
+
+                            supprimerFichierImage($produit['img6'] ?? '');
+                            $sqlModifier .= ', img6=?';
+                            $params[] = '';
 
                         }
 
@@ -610,6 +661,12 @@
 
                             $params[] = $img7;
 
+                        } elseif (!empty($_POST['supprimer_photo'][7])) {
+
+                            supprimerFichierImage($produit['img7'] ?? '');
+                            $sqlModifier .= ', img7=?';
+                            $params[] = '';
+
                         }
 
                         if ($updateImg8) {
@@ -617,6 +674,12 @@
                             $sqlModifier .= ', img8=?';
 
                             $params[] = $img8;
+
+                        } elseif (!empty($_POST['supprimer_photo'][8])) {
+
+                            supprimerFichierImage($produit['img8'] ?? '');
+                            $sqlModifier .= ', img8=?';
+                            $params[] = '';
 
                         }
 
@@ -626,6 +689,12 @@
 
                             $params[] = $img9;
 
+                        } elseif (!empty($_POST['supprimer_photo'][9])) {
+
+                            supprimerFichierImage($produit['img9'] ?? '');
+                            $sqlModifier .= ', img9=?';
+                            $params[] = '';
+
                         }
 
                         if ($updateImg10) {
@@ -633,6 +702,12 @@
                             $sqlModifier .= ', img10=?';
 
                             $params[] = $img10;
+
+                        } elseif (!empty($_POST['supprimer_photo'][10])) {
+
+                            supprimerFichierImage($produit['img10'] ?? '');
+                            $sqlModifier .= ', img10=?';
+                            $params[] = '';
 
                         }
 
