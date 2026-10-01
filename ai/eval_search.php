@@ -138,6 +138,13 @@ foreach ($vehicules as [$label, $texte, $unique, $attendus]) {
     $affiche($passe, "vehicle \"$texte\" ($label)", 'unique=' . json_encode($r['unique']) . ' ids=' . json_encode($ids));
 }
 
+// Dispatcher: GPT-5.x models send every optional parameter, zero for "not
+// set" - real arguments logged by eval_chat via OpenRouter.
+require_once __DIR__ . '/tool_schemas.php';
+$dispatch = ai_build_tool_dispatcher($pdo);
+$rows = $dispatch('search_products', ['query' => 'Dem', 'id_voiture' => 51, 'id_sous_categorie' => 0, 'limit' => 5, 'min_price' => 0, 'max_price' => 0]);
+$affiche(count(array_filter($rows, fn($r) => preg_match('/DEMAR/i', $r['libelle']))) > 0, 'dispatcher: parametres optionnels a 0 = non renseignes', count($rows) . ' resultat(s)');
+
 // Session memory (ai/context.php): what a follow-up turn must inherit,
 // rebuilt from the logged tools_called of the real sessions.
 require_once __DIR__ . '/context.php';

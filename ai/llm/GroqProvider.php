@@ -1,21 +1,30 @@
 <?php
 require_once __DIR__ . '/LlmProvider.php';
 
-// Groq exposes an OpenAI-compatible chat-completions API, so this adapter
-// also serves as the template for a future OpenAIProvider - only the base
-// URL and auth header would differ.
+// Groq exposes an OpenAI-compatible chat-completions API. The same adapter
+// serves any other OpenAI-compatible endpoint (OpenRouter - see factory.php)
+// by passing its URL.
 class GroqProvider implements LlmProvider
 {
     private string $apiKey;
     private string $model;
-    // Cumulative tokens billed by every API call this object made - read by
-    // ai/eval_chat.php to estimate cost per conversation.
-    public array $usage = ['input' => 0, 'output' => 0, 'calls' => 0];
+    private string $endpoint;
+    // Cumulative usage of every API call this object made - read by
+    // ai/eval_chat.php. 'cost' is only filled by endpoints that report the
+    // real billed amount per request (OpenRouter's usage.cost, in USD).
+    public array $usage = ['input' => 0, 'output' => 0, 'calls' => 0, 'cost' => 0.0];
 
-    public function __construct(string $apiKey, string $model = 'openai/gpt-oss-120b')
+    // OpenRouter reserves credit for max_tokens up front (default: the
+    // model's maximum, 65k+) and refuses the request if the balance can't
+    // cover that - real replies here use a few hundred tokens.
+    private ?int $maxTokens;
+
+    public function __construct(string $apiKey, string $model = 'openai/gpt-oss-120b', string $endpoint = 'https://api.groq.com/openai/v1/chat/completions', ?int $maxTokens = null)
     {
         $this->apiKey = $apiKey;
         $this->model = $model;
+        $this->endpoint = $endpoint;
+        $this->maxTokens = $maxTokens;
     }
 
     public function converse(
@@ -97,7 +106,10 @@ class GroqProvider implements LlmProvider
     // present, otherwise fall back to a fixed short backoff.
     private function call(array $payload, int $retriesLeft = 2): array
     {
-        $ch = curl_init('https://api.groq.com/openai/v1/chat/completions');
+        if ($this->maxTokens !== null && !isset($payload['max_tokens'])) {
+            $payload['max_tokens'] = $this->maxTokens;
+        }
+        $ch = curl_init($this->endpoint);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST => true,
@@ -114,7 +126,7 @@ class GroqProvider implements LlmProvider
         curl_close($ch);
 
         if ($raw === false) {
-            throw new RuntimeException("Groq request failed: $curlError");
+            throw new RuntimeException(parse_url($this->endpoint, PHP_URL_HOST) . " request failed: $curlError");
         }
         $decoded = json_decode($raw, true);
 
@@ -145,10 +157,11 @@ class GroqProvider implements LlmProvider
 
         if ($httpCode >= 400) {
             $msg = $decoded['error']['message'] ?? $raw;
-            throw new RuntimeException("Groq API error (HTTP $httpCode): $msg");
+            throw new RuntimeException(parse_url($this->endpoint, PHP_URL_HOST) . " API error (HTTP $httpCode): $msg");
         }
         $this->usage['input'] += (int)($decoded['usage']['prompt_tokens'] ?? 0);
         $this->usage['output'] += (int)($decoded['usage']['completion_tokens'] ?? 0);
+        $this->usage['cost'] += (float)($decoded['usage']['cost'] ?? 0);
         $this->usage['calls']++;
         return $decoded;
     }

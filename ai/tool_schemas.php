@@ -86,6 +86,19 @@ function ai_tool_schemas(): array
 
 // Maps a tool name + raw args (as decoded from the model's function call)
 // to an actual call into ai/tools.php, with basic type coercion.
+// Optional integer argument, or null when absent OR zero/empty: some models
+// (OpenAI GPT-5.x) fill every optional parameter, sending id_voiture=0 and
+// max_price=0 for "not set" - read literally, max_price=0 meant "costing at
+// most 0 DA" and every search came back empty.
+function ai_arg_int_optionnel(array $args, string $cle): ?int
+{
+    if (!isset($args[$cle]) || $args[$cle] === '') {
+        return null;
+    }
+    $valeur = (int)$args[$cle];
+    return $valeur > 0 ? $valeur : null;
+}
+
 function ai_build_tool_dispatcher(PDO $pdo): callable
 {
     return function (string $name, array $args) use ($pdo): array {
@@ -94,11 +107,11 @@ function ai_build_tool_dispatcher(PDO $pdo): callable
                 return ai_search_products(
                     $pdo,
                     (string)($args['query'] ?? ''),
-                    isset($args['id_voiture']) ? (int)$args['id_voiture'] : null,
-                    isset($args['id_sous_categorie']) ? (int)$args['id_sous_categorie'] : null,
-                    isset($args['limit']) ? (int)$args['limit'] : 8,
-                    isset($args['min_price']) ? (int)$args['min_price'] : null,
-                    isset($args['max_price']) ? (int)$args['max_price'] : null
+                    ai_arg_int_optionnel($args, 'id_voiture'),
+                    ai_arg_int_optionnel($args, 'id_sous_categorie'),
+                    ai_arg_int_optionnel($args, 'limit') ?? 8,
+                    ai_arg_int_optionnel($args, 'min_price'),
+                    ai_arg_int_optionnel($args, 'max_price')
                 );
             case 'lookup_by_reference':
                 return ai_lookup_by_reference($pdo, (string)($args['reference'] ?? ''));
@@ -108,11 +121,11 @@ function ai_build_tool_dispatcher(PDO $pdo): callable
                 $r = ai_get_product(
                     $pdo,
                     (int)($args['id_produit'] ?? 0),
-                    isset($args['id_voiture']) ? (int)$args['id_voiture'] : null
+                    ai_arg_int_optionnel($args, 'id_voiture')
                 );
                 return $r ?? ['found' => false];
             case 'list_categories':
-                return ai_list_categories($pdo, isset($args['id_voiture']) ? (int)$args['id_voiture'] : null);
+                return ai_list_categories($pdo, ai_arg_int_optionnel($args, 'id_voiture'));
             case 'get_delivery_price':
                 $r = ai_get_delivery_price($pdo, (string)($args['wilaya'] ?? ''), (string)($args['mode'] ?? 'domicile'));
                 return $r ?? ['found' => false];

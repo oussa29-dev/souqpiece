@@ -9,6 +9,7 @@
 // Run: php ai/eval_chat.php                 (provider from ai/config.php)
 //      php ai/eval_chat.php anthropic       (compare another provider)
 //      php ai/eval_chat.php groq B D        (only sessions B and D)
+//      php ai/eval_chat.php openrouter:openai/gpt-5.6-luna   (provider:model)
 if (php_sapi_name() !== 'cli') {
     die('CLI only');
 }
@@ -22,8 +23,15 @@ require_once __DIR__ . '/llm/factory.php';
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 $config = require __DIR__ . '/config.php';
-if (isset($argv[1]) && isset($config[$argv[1]])) {
-    $config['provider'] = $argv[1];
+if (isset($argv[1])) {
+    [$nomProvider, $nomModele] = array_pad(explode(':', $argv[1], 2), 2, null);
+    if (!isset($config[$nomProvider])) {
+        die("Provider inconnu dans ai/config.php: $nomProvider\n");
+    }
+    $config['provider'] = $nomProvider;
+    if ($nomModele !== null && $nomModele !== '') {
+        $config[$nomProvider]['model'] = $nomModele;
+    }
 }
 $seulement = array_slice($argv, 2);
 
@@ -79,6 +87,8 @@ foreach ($sessions as $cle => [$label, $messages, $attendu]) {
 }
 
 $t = max(1, $bilan['tours']);
-printf("\n%s\nSUMMARY %s: %d turns, %d provider errors, avg %.1fs/turn, avg tokens/turn in %d / out %d (totals in %d / out %d)\n",
-    str_repeat('=', 70), $config['provider'], $bilan['tours'], $bilan['erreurs'], $bilan['secondes'] / $t,
-    $bilan['input'] / $t, $bilan['output'] / $t, $bilan['input'], $bilan['output']);
+$cout = $provider->usage['cost'] ?? 0.0;
+printf("\n%s\nSUMMARY %s (%s): %d turns, %d provider errors, avg %.1fs/turn, avg tokens/turn in %d / out %d (totals in %d / out %d)%s\n",
+    str_repeat('=', 70), $config['provider'], $config[$config['provider']]['model'], $bilan['tours'], $bilan['erreurs'], $bilan['secondes'] / $t,
+    $bilan['input'] / $t, $bilan['output'] / $t, $bilan['input'], $bilan['output'],
+    $cout > 0 ? sprintf(', billed $%.4f', $cout) : '');

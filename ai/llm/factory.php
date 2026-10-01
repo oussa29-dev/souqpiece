@@ -16,6 +16,10 @@ function ai_make_provider(array $config): LlmProvider
             return new AnthropicProvider($config['anthropic']['api_key'], $config['anthropic']['model'] ?? 'claude-haiku-4-5-20251001');
         case 'groq':
             return new GroqProvider($config['groq']['api_key'], $config['groq']['model'] ?? 'openai/gpt-oss-120b');
+        case 'openrouter':
+            // One key for models of every vendor ("google/...", "openai/...",
+            // "anthropic/..."), same OpenAI-compatible format as Groq.
+            return new GroqProvider($config['openrouter']['api_key'], $config['openrouter']['model'] ?? 'google/gemini-3.5-flash-lite', 'https://openrouter.ai/api/v1/chat/completions', 2048);
         default:
             throw new RuntimeException("Unknown LLM provider: {$config['provider']}");
     }
