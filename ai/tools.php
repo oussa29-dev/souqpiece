@@ -261,7 +261,7 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
             produit.id_produit, produit.libelle, produit.marquepiece,
             produit.prix, produit.stock, produit.img1,
             pvd.id_voiture AS voiture_id,
-            v.modele, m.libelle AS marque_nom, c.libelle AS categorie_nom
+            v.modele AS vehicule_modele, m.libelle AS vehicule_marque, c.libelle AS categorie_nom
         FROM produit
         LEFT JOIN pvd ON produit.id_produit = pvd.id_produit
         LEFT JOIN voiture v ON pvd.id_voiture = v.id_voiture

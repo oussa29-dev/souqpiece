@@ -67,6 +67,7 @@ require_once __DIR__ . '/tools.php';
 require_once __DIR__ . '/tool_schemas.php';
 require_once __DIR__ . '/prompt.php';
 require_once __DIR__ . '/context.php';
+require_once __DIR__ . '/guard.php';
 require_once __DIR__ . '/llm/factory.php';
 
 // Recent history for this session, oldest first.
@@ -86,7 +87,7 @@ $logUser->execute([$id_session, 'user', $message]);
 try {
     $provider = ai_make_provider($config);
     $dispatcher = ai_build_tool_dispatcher($pdo);
-    $result = $provider->converse($systemPrompt, $history, $message, ai_tool_schemas(), $dispatcher);
+    $result = ai_converse_verifie($provider, $systemPrompt, $history, $message, ai_tool_schemas(), $dispatcher);
 } catch (Throwable $e) {
     // Never leak raw provider/API exception details (could contain internal
     // routing/config info) to the client - log server-side only.

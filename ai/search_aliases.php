@@ -37,6 +37,13 @@ function ai_search_arabic_aliases(): array
         'كوروا' => ['courroie'],
         'الترناتور' => ['alternateur'],
         'روتيل' => ['rotule', 'rottul'],
+        // Production 01/10 (store owner, partly by voice input)
+        'كاردن' => ['cardan', 'cardon'],
+        'كاردان' => ['cardan', 'cardon'],
+        'فرن' => ['frein', 'frien'],
+        'فرين' => ['frein', 'frien'],
+        'كرمايور' => ['cremaillere', 'cremayeur'],
+        'كريمايور' => ['cremaillere', 'cremayeur'],
         // Vehicles (catalog model/brand names)
         'ياريس' => ['yaris'],
         'كورولا' => ['corolla'],

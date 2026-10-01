@@ -258,6 +258,10 @@
                 }
                 // On ajoute un GROUP BY pour éviter les doublons si un produit est dans plusieurs PVD
                 $query .= ' GROUP BY produit.id_produit';
+                // Disponibles d'abord (demande du magasin), puis id pour un
+                // ordre stable d'une page a l'autre - sans ORDER BY, MySQL
+                // renvoyait un ordre arbitraire, epuises melanges aux autres.
+                $query .= ' ORDER BY produit.stock DESC, produit.id_produit ASC';
                 $query .= ' LIMIT ' . (int)$itemsPerPage . ' OFFSET ' . (int)$offset;
             
                 $stmt = $pdo->prepare($query);

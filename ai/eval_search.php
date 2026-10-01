@@ -44,6 +44,11 @@ $recherches = [
     ['moyeu (catalogue: MAYEAU)', 'moyeu', null, '/MAYEAU|MOYEU|MAYEU/i', null, 1],
     ['cremaillere (catalogue: CREMAYEUR)', 'cremaillere', null, '/CREMA/i', null, 1],
     ['demarreur (deja couvert)', 'démarreur', null, '/DEMAR/i', null, 1],
+    ['prod 01/10 "كاردن ياريس" NSP130 - 4 CARDON dispo', 'كاردن', 42, '/CARDON/i', [42], 1],
+    ['prod 01/10 variante كاردان', 'كاردان', 42, '/CARDON/i', [42], 1],
+    ['prod 01/10 "ديسك فرن ريفو"', 'ديسك فرن', 57, '/DISQUE/i', [57], 1],
+    ['prod 01/10 "كرمايور ياريس"', 'كرمايور', 42, '/CREMA/i', [42], 1],
+    ['prod 01/10 "Plaquet revo"', 'Plaquet', 57, '/PLAQUET/i', [57], 1],
 ];
 
 // ranking: [label, query, id_voiture|null, regex the FIRST result's libelle must match]
@@ -184,6 +189,44 @@ foreach ($contextes as [$label, $rows, $motifs]) {
     });
     $affiche($manquants === [], "context ($label)", 'manque ' . implode(' ', $manquants) . ' dans: ' . substr($texte, 0, 160));
 }
+
+// Guard (ai/guard.php): a reply may only link products a tool returned in
+// that turn. Scripted fake model reproducing production 01/10 ("Plaquet
+// revo": a product list with no tool call), then a retry that searches but
+// still slips in one invented line.
+require_once __DIR__ . '/llm/LlmProvider.php';
+require_once __DIR__ . '/guard.php';
+class FauxModele implements LlmProvider
+{
+    public int $appels = 0;
+    private array $script;
+    public function __construct(array $script) { $this->script = $script; }
+    public function converse(string $systemPrompt, array $history, string $userMessage, array $toolSchemas, callable $toolDispatcher, int $maxToolRounds = 5): array
+    {
+        $etape = $this->script[$this->appels++];
+        return $etape($toolDispatcher);
+    }
+}
+$vraiId = (int)(ai_search_products($pdo, 'plaquette', 57, null, 1)[0]['id_produit'] ?? 0);
+$faux = new FauxModele([
+    fn($d) => ['text' => "PLAQUETTE INVENTEE - 7020 DA - [voir le produit](produit.php?id=999999)", 'tools_called' => []],
+    function ($d) {
+        $rows = $d('search_products', ['query' => 'plaquette', 'id_voiture' => 57, 'limit' => 1]);
+        return ['text' => "PLAQUETTE - " . $rows[0]['prix'] . " DA - [voir le produit](produit.php?id=" . $rows[0]['id_produit'] . "&id_voiture=57)\nAUTRE INVENTEE - [voir le produit](produit.php?id=999998)", 'tools_called' => [['name' => 'search_products', 'args' => []]]];
+    },
+]);
+$r = ai_converse_verifie($faux, '', [], 'Plaquet revo', [], ai_build_tool_dispatcher($pdo));
+$affiche($faux->appels === 2 && strpos($r['text'], "id=$vraiId") !== false && strpos($r['text'], '99999') === false,
+    'guard: produits non retournes par un outil -> nouvel essai, lignes inventees retirees', "appels={$faux->appels} texte=" . substr($r['text'], 0, 150));
+
+$honnete = new FauxModele([
+    function ($d) {
+        $rows = $d('search_products', ['query' => 'plaquette', 'id_voiture' => 57, 'limit' => 2]);
+        return ['text' => implode("\n", array_map(fn($p) => "X - [voir le produit](produit.php?id={$p['id_produit']})", $rows)), 'tools_called' => []];
+    },
+]);
+$r = ai_converse_verifie($honnete, '', [], 'Plaquet revo', [], ai_build_tool_dispatcher($pdo));
+$affiche($honnete->appels === 1 && substr_count($r['text'], 'produit.php?id=') === 2, 'guard: reponse honnete inchangee, un seul appel', "appels={$honnete->appels}");
 
 $total = $ok + count($echecs);
 foreach ($echecs as $e) {
