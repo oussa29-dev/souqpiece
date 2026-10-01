@@ -36,6 +36,21 @@ function ai_normalize_term(string $term): string
     return strtr(mb_strtolower(trim($term)), $map);
 }
 
+// French equivalents of an Arabic/Darija word, or null. Also tries the word
+// without a leading definite article ("الفرامل" -> "فرامل").
+function ai_arabic_alias_lookup(string $term): ?array
+{
+    $aliases = ai_search_arabic_aliases();
+    $trimmed = trim($term);
+    if (isset($aliases[$trimmed])) {
+        return $aliases[$trimmed];
+    }
+    if (mb_substr($trimmed, 0, 2) === 'ال' && isset($aliases[mb_substr($trimmed, 2)])) {
+        return $aliases[mb_substr($trimmed, 2)];
+    }
+    return null;
+}
+
 // Expands one search term to itself plus any known spelling variant,
 // common misspelling, or Arabic/Darija translation from the small
 // dictionary in search_aliases.php. Pure dictionary lookup - no fuzzy
@@ -44,17 +59,21 @@ function ai_expand_term_variants(string $term): array
 {
     $variants = [$term];
 
-    $arabicAliases = ai_search_arabic_aliases();
-    $trimmed = trim($term);
-    if (isset($arabicAliases[$trimmed])) {
-        $variants = array_merge($variants, $arabicAliases[$trimmed]);
+    $arabic = ai_arabic_alias_lookup($term);
+    if ($arabic !== null) {
+        $variants = array_merge($variants, $arabic);
     }
 
-    $normalized = ai_normalize_term($term);
-    foreach (ai_search_synonym_groups() as $group) {
-        if (in_array($normalized, $group, true)) {
-            $variants = array_merge($variants, $group);
-            break;
+    // Spelling groups apply to the Arabic translations too ("فيلتر" ->
+    // "filter" -> also "filtre").
+    $groups = ai_search_synonym_groups();
+    foreach ($variants as $variant) {
+        $normalized = ai_normalize_term($variant);
+        foreach ($groups as $group) {
+            if (in_array($normalized, $group, true)) {
+                $variants = array_merge($variants, $group);
+                break;
+            }
         }
     }
 
@@ -211,9 +230,27 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     // silently differ between two otherwise-identical calls (found via a
     // production conversation audit: a broad "frein" search returned a
     // completely different valid 8-row set seconds apart).
+    // Relevance on the first term (the part name: "culasse" in "culasse
+    // coaster"): a libelle that STARTS with it beats one that only contains
+    // it - "culasse" listed JOINT CULASSE before CULASSE, "demarreur"
+    // listed CONTACTEUR DEMARREUR first. Rows found only through reference
+    // or description come last.
+    $debut = [];
+    $contient = [];
+    $relevanceParams = [];
+    foreach (ai_expand_term_variants(reset($terms)) as $variant) {
+        $debut[] = 'produit.libelle LIKE ?';
+        $relevanceParams[] = ai_escape_like($variant) . '%';
+    }
+    foreach (ai_expand_term_variants(reset($terms)) as $variant) {
+        $contient[] = 'produit.libelle LIKE ?';
+        $relevanceParams[] = '%' . ai_escape_like($variant) . '%';
+    }
+    $relevance = 'CASE WHEN ' . implode(' OR ', $debut) . ' THEN 0 WHEN ' . implode(' OR ', $contient) . ' THEN 1 ELSE 2 END';
+
     $orderBy = ($min_price !== null || $max_price !== null)
-        ? 'produit.prix ASC, produit.stock DESC, produit.id_produit ASC'
-        : 'produit.stock DESC, produit.id_produit ASC';
+        ? 'produit.prix ASC, produit.stock DESC, ' . $relevance . ', produit.id_produit ASC'
+        : 'produit.stock DESC, ' . $relevance . ', produit.id_produit ASC';
 
     $sql = '
         SELECT
@@ -232,7 +269,7 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         LIMIT ' . $limit;
 
     $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
+    $stmt->execute(array_merge($params, $relevanceParams));
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($rows as &$row) {
@@ -246,25 +283,32 @@ function ai_lookup_by_reference(PDO $pdo, string $reference): array
 {
     $reference = trim($reference);
 
-    $sql = 'SELECT r.reference, p.id_produit, p.libelle, p.marquepiece, p.prix, p.stock
-            FROM reference r
-            JOIN produit p ON p.id_produit = r.id_produit
-            WHERE r.reference = ? AND p.prix > 0
-            ORDER BY p.stock DESC
-            LIMIT 20';
-    $stmt = $pdo->prepare($sql);
+    // Price-0 rows are kept (unlike search_products): a customer typing an
+    // exact reference that exists must not be told "not found" - real case,
+    // 13508-30011. They come back flagged, without price or link.
+    $select = 'SELECT r.reference, p.id_produit, p.libelle, p.marquepiece, p.prix, p.stock
+               FROM reference r
+               JOIN produit p ON p.id_produit = r.id_produit';
+    $order = ' ORDER BY p.prix > 0 DESC, p.stock DESC LIMIT 20';
+
+    $stmt = $pdo->prepare($select . ' WHERE r.reference = ?' . $order);
     $stmt->execute([$reference]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($rows)) {
-        $sql = 'SELECT r.reference, p.id_produit, p.libelle, p.marquepiece, p.prix, p.stock
-                FROM reference r
-                JOIN produit p ON p.id_produit = r.id_produit
-                WHERE r.reference LIKE ? AND p.prix > 0
-                ORDER BY p.stock DESC
-                LIMIT 20';
-        $stmt = $pdo->prepare($sql);
+        $stmt = $pdo->prepare($select . ' WHERE r.reference LIKE ?' . $order);
         $stmt->execute(['%' . ai_escape_like($reference) . '%']);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    // Same reference typed without its dashes/spaces/dots ("4351252020" for
+    // "43512-52020"): compare letters and digits only. "Contains", not
+    // equality - many stored references combine several codes
+    // ("34416/43512-52020").
+    $compacte = preg_replace('/[^A-Z0-9]/', '', mb_strtoupper($reference));
+    if (empty($rows) && strlen($compacte) >= 5) {
+        $stmt = $pdo->prepare($select . " WHERE REGEXP_REPLACE(UPPER(r.reference), '[^A-Z0-9]', '') LIKE ?" . $order);
+        $stmt->execute(['%' . $compacte . '%']);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -272,6 +316,13 @@ function ai_lookup_by_reference(PDO $pdo, string $reference): array
     // instead of picking one silently (43.6% of references are ambiguous).
     $grouped = [];
     foreach ($rows as $row) {
+        if ((int)$row['prix'] <= 0) {
+            $row['prix'] = null;
+            $row['prix_non_disponible'] = true;
+            $brand = $row['marquepiece'] !== '' ? $row['marquepiece'] : 'NON SPECIFIE';
+            $grouped[$brand][] = $row;
+            continue;
+        }
         $row['url'] = 'produit.php?id=' . $row['id_produit'];
         $brand = $row['marquepiece'] !== '' ? $row['marquepiece'] : 'NON SPECIFIE';
         $grouped[$brand][] = $row;
@@ -292,20 +343,34 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
 {
     static $all = null;
     if ($all === null) {
-        $stmt = $pdo->query('SELECT v.id_voiture, v.modele, m.libelle AS marque
+        $stmt = $pdo->query('SELECT v.id_voiture, v.modele, m.libelle AS marque, v.annee_debut, v.annee_fin
                               FROM voiture v JOIN marque m ON m.id_marque = v.id_marque');
         $all = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    $needle = mb_strtoupper(trim($free_text));
-    $needleTokens = array_filter(preg_split('/\s+/', $needle));
+    // Customers give a year ("Corolla 2008"), almost never a chassis code -
+    // every voiture row has its production years, so a year narrows the
+    // candidates instead of being matched as text.
+    $annee = null;
+    $needleTokens = [];
+    foreach (preg_split('/\s+/', trim($free_text)) as $token) {
+        if ($token === '') {
+            continue;
+        }
+        if (preg_match('/^(19|20)\d{2}$/', $token)) {
+            $annee = (int)$token;
+            continue;
+        }
+        $arabe = ai_arabic_alias_lookup($token);
+        $needleTokens[] = mb_strtoupper($arabe !== null ? $arabe[0] : $token);
+    }
 
     $scored = [];
     foreach ($all as $row) {
         $haystack = mb_strtoupper($row['marque'] . ' ' . $row['modele']);
         $score = 0;
         foreach ($needleTokens as $token) {
-            if ($token !== '' && mb_strpos($haystack, $token) !== false) {
+            if (mb_strpos($haystack, $token) !== false) {
                 $score += strlen($token);
             }
         }
@@ -314,10 +379,28 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
         }
     }
 
+    if ($annee !== null) {
+        $dansLesAnnees = array_values(array_filter($scored, function ($row) use ($annee) {
+            return $row['annee_debut'] !== null && $row['annee_fin'] !== null
+                && (int)$row['annee_debut'] <= $annee && $annee <= (int)$row['annee_fin'];
+        }));
+        // A year outside every candidate's range is more likely a typo than a
+        // reason to answer "no vehicle" - keep the unfiltered list then.
+        if ($dansLesAnnees !== []) {
+            $scored = $dansLesAnnees;
+        }
+    }
+
     usort($scored, fn($a, $b) => $b['score'] <=> $a['score']);
     $matches = array_slice($scored, 0, 5);
 
-    $unique = count($matches) <= 1
+    foreach ($matches as &$match) {
+        $match['label'] = trim($match['marque'] . ' ' . preg_replace('/\s+/', ' ', $match['modele']))
+            . ($match['annee_debut'] !== null ? ' (' . $match['annee_debut'] . '-' . $match['annee_fin'] . ')' : '');
+    }
+    unset($match);
+
+    $unique = count($matches) === 1
         || (count($matches) >= 2 && $matches[0]['score'] > $matches[1]['score']);
 
     return ['unique' => $unique, 'matches' => $matches];

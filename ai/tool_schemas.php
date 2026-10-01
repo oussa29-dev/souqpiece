@@ -26,7 +26,7 @@ function ai_tool_schemas(): array
         ],
         [
             'name' => 'lookup_by_reference',
-            'description' => 'Look up an exact OEM/manufacturer reference number. Returns all matching products grouped by brand (marquepiece), since the same reference number is often sold under several different brands at different prices.',
+            'description' => 'Look up an exact OEM/manufacturer reference number. Returns all matching products grouped by brand (marquepiece), since the same reference number is often sold under several different brands at different prices. Dashes and spaces are optional. A row with prix_non_disponible=true exists in the catalog but has no online price and no link: tell the customer the part is listed and to contact the store for the price - never say it was not found.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -37,11 +37,11 @@ function ai_tool_schemas(): array
         ],
         [
             'name' => 'resolve_vehicle',
-            'description' => 'Resolve free-text vehicle mentions (brand and/or model, in French or transliterated Arabic) to an id_voiture usable by other tools. Returns {unique: bool, matches: [up to 5 ranked candidates]}. `unique` is the deterministic signal for whether the customer needs to be asked to specify the exact model - see rule 9 in your instructions, it is not a judgment call.',
+            'description' => 'Resolve free-text vehicle mentions (brand and/or model, in French or transliterated Arabic) to an id_voiture usable by other tools. Returns {unique: bool, matches: [up to 5 ranked candidates]}. `unique` is the deterministic signal for whether the customer needs to be asked to specify the exact model - see rule 9 in your instructions, it is not a judgment call. Pass the year too when the customer gives one ("corolla 2008"): it narrows the candidates by production years. When you ask the customer to choose, name each candidate by its `label` (model and years) - never show an id_voiture.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
-                    'free_text' => ['type' => 'string', 'description' => 'What the customer said about their vehicle, e.g. "قاشقاي" or "toyota hilux".'],
+                    'free_text' => ['type' => 'string', 'description' => 'What the customer said about their vehicle, including any year, e.g. "قاشقاي", "toyota hilux" or "corolla 2008".'],
                 ],
                 'required' => ['free_text'],
             ],
