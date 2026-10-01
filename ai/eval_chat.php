@@ -45,6 +45,7 @@ $sessions = [
     'F' => ['#30 reference sans prix', ['13508-30011'], 'says the part is listed (PIGNON INTERMEDIAIRE) and to contact the store for the price - not "not found"'],
     'G' => ['#18 vente en gros', ['سلعة جملة'], 'Arabic; no invented wholesale policy; gives the store phone'],
     'H' => ['#34-39 demarreur Yaris 2', ['Dem yaris', 'Ncp90'], 'ends with DEMARREUR products for the Yaris 2 NCP90, each line starting with the product name'],
+    'K' => ['darija phonetique hors dictionnaire', ['بلاكات ريفو', '4wd', 'رولمان ياريس 2008', 'Ncp90'], 'بلاكات -> PLAQUETTE for the Revo 4WD (57); رولمان -> ROULEMENT for the Yaris 2 NCP90 (51); Arabic replies, real products only'],
     'J' => ['prod 01/10 plaquette Revo inventee', ['ديسك فرن ريفو', 'ريفو 4wd', 'Plaquet revo', 'كاردن ياريس', 'Nsp130'], 'disques for the Revo 4WD (57); "Plaquet revo" lists PLAQUETTE from a real search (tools called, no invented links); كاردن -> CARDON DE ROUE for the NSP130 (42)'],
     'I' => ['prod 01/10 changement de voiture', ['Compresseur corolla', 'Nde180', 'Dem yaris', 'Yaris 2', 'Ncp90'], 'compresseur for the Corolla NDE180 (id 54), then DEMARREUR for the Yaris 2 NCP90 (id 51) - never the Corolla, never an invented id (was 57, a Revo)'],
 ];

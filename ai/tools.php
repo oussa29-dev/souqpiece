@@ -6,6 +6,7 @@
 // ai_conversation, and that happens in chat.php, not here.
 
 require_once __DIR__ . '/search_aliases.php';
+require_once __DIR__ . '/phonetic.php';
 
 // MySQL's LIKE treats % and _ as wildcards even in user-supplied text, so a
 // literal underscore or percent in a search term (real example in this
@@ -53,15 +54,23 @@ function ai_arabic_alias_lookup(string $term): ?array
 
 // Expands one search term to itself plus any known spelling variant,
 // common misspelling, or Arabic/Darija translation from the small
-// dictionary in search_aliases.php. Pure dictionary lookup - no fuzzy
-// computation, no database access, effectively free.
-function ai_expand_term_variants(string $term): array
+// dictionary in search_aliases.php. With $pdo, an Arabic-script word the
+// dictionary doesn't know is also matched by sound against the catalog's
+// words (ai/phonetic.php) - "فيزيبل" -> FUSIBLE without a dictionary entry.
+function ai_expand_term_variants(string $term, ?PDO $pdo = null): array
 {
+    static $phonetique = [];
     $variants = [$term];
 
     $arabic = ai_arabic_alias_lookup($term);
     if ($arabic !== null) {
         $variants = array_merge($variants, $arabic);
+    } elseif ($pdo !== null && ai_est_arabe($term)) {
+        $cle = trim($term);
+        if (!isset($phonetique[$cle])) {
+            $phonetique[$cle] = ai_correspondances_phonetiques($pdo, $cle);
+        }
+        $variants = array_merge($variants, $phonetique[$cle]);
     }
 
     // Spelling groups apply to the Arabic translations too ("فيلتر" ->
@@ -163,7 +172,7 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     $descParams = [];
     foreach ($terms as $term) {
         $orParts = [];
-        foreach (ai_expand_term_variants($term) as $variant) {
+        foreach (ai_expand_term_variants($term, $pdo) as $variant) {
             $orParts[] = 'description LIKE ?';
             $descParams[] = '%' . ai_escape_like($variant) . '%';
         }
@@ -179,7 +188,7 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     $libParams = [];
     foreach ($terms as $term) {
         $orParts = [];
-        foreach (ai_expand_term_variants($term) as $variant) {
+        foreach (ai_expand_term_variants($term, $pdo) as $variant) {
             $orParts[] = 'libelle LIKE ?';
             $libParams[] = '%' . ai_escape_like($variant) . '%';
         }
@@ -242,11 +251,11 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     $debut = [];
     $contient = [];
     $relevanceParams = [];
-    foreach (ai_expand_term_variants(reset($terms)) as $variant) {
+    foreach (ai_expand_term_variants(reset($terms), $pdo) as $variant) {
         $debut[] = 'produit.libelle LIKE ?';
         $relevanceParams[] = ai_escape_like($variant) . '%';
     }
-    foreach (ai_expand_term_variants(reset($terms)) as $variant) {
+    foreach (ai_expand_term_variants(reset($terms), $pdo) as $variant) {
         $contient[] = 'produit.libelle LIKE ?';
         $relevanceParams[] = '%' . ai_escape_like($variant) . '%';
     }

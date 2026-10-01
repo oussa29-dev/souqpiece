@@ -190,6 +190,28 @@ foreach ($contextes as [$label, $rows, $motifs]) {
     $affiche($manquants === [], "context ($label)", 'manque ' . implode(' ', $manquants) . ' dans: ' . substr($texte, 0, 160));
 }
 
+// Phonetic matching (ai/phonetic.php) - Darija part names are mostly the
+// French word spelled by ear in Arabic letters (store owner, 01/10).
+// "!" = must NOT match anything (everyday words, and words whose French
+// equivalent is a different word - those belong in the dictionary).
+$phonetiques = [
+    'روتيل' => '/^rot/', 'كاردن' => '/^card/', 'ديمارور' => '/^demarreur$/', 'الترناتور' => '/^alternateur$/',
+    'بلاكات' => '/^plaquette$/', 'رولمان' => '/^roulement$/', 'بيستون' => '/^piston$/', 'توندور' => '/^tendeur$/',
+    'كابتور' => '/^capteur$/', 'ترونغل' => '/^triangle$/', 'بومبا' => '/^pompe$/', 'فيلتر' => '/^filt/',
+    'بغيت' => '!', 'السعر' => '!', 'الثمن' => '!', 'محرك' => '!', 'مزال' => '!', 'ماستر' => '!', 'ريترو' => '!',
+    'فيزيبل' => '!',
+];
+foreach ($phonetiques as $mot => $attendu) {
+    $r = ai_correspondances_phonetiques($pdo, $mot);
+    $passe = $attendu === '!' ? $r === [] : ($r !== [] && preg_match($attendu, $r[0]) === 1);
+    $affiche($passe, "phonetique \"$mot\"", 'obtenu: ' . ($r ? implode(', ', $r) : 'rien'));
+}
+foreach ([['بلاكات', 57, '/PLAQUET/i'], ['رولمان', 51, '/ROUL/i'], ['ترونغل', 42, '/TRIANG/i'], ['بومبا', null, '/POMPE/i']] as [$q, $v, $motif]) {
+    $rows = ai_search_products($pdo, $q, $v, null, 8);
+    $ok2 = count(array_filter($rows, fn($r) => preg_match($motif, $r['libelle']))) > 0 && preg_match($motif, $rows[0]['libelle'] ?? '');
+    $affiche((bool)$ok2, "search phonetique \"$q\"" . ($v ? " v$v" : ''), count($rows) . ' resultat(s), premier: ' . ($rows[0]['libelle'] ?? 'aucun'));
+}
+
 // Guard (ai/guard.php): a reply may only link products a tool returned in
 // that turn. Scripted fake model reproducing production 01/10 ("Plaquet
 // revo": a product list with no tool call), then a retry that searches but
