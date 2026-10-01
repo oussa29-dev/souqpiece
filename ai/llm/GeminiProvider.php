@@ -6,6 +6,10 @@ class GeminiProvider implements LlmProvider
     private string $apiKey;
     private string $model;
     private string $endpoint;
+    // Cumulative tokens billed by every API call this object made - read by
+    // ai/eval_chat.php to estimate cost per conversation. Thinking tokens are
+    // billed as output, so they are counted there.
+    public array $usage = ['input' => 0, 'output' => 0, 'calls' => 0];
 
     public function __construct(string $apiKey, string $model = 'gemini-2.0-flash')
     {
@@ -192,6 +196,7 @@ class GeminiProvider implements LlmProvider
             if (preg_match('/retry in ([\d.]+)s/', $msg, $m)) {
                 $wait = (float)$m[1] + 0.5;
             }
+            error_log(sprintf('Gemini %d (rate limit/overload), waiting %.1fs before retry', $httpCode, $wait));
             usleep((int)($wait * 1_000_000));
             return $this->call($payload, $retriesLeft - 1);
         }
@@ -200,6 +205,10 @@ class GeminiProvider implements LlmProvider
             $msg = $decoded['error']['message'] ?? $raw;
             throw new RuntimeException("Gemini API error (HTTP $httpCode): $msg");
         }
+        $meta = $decoded['usageMetadata'] ?? [];
+        $this->usage['input'] += (int)($meta['promptTokenCount'] ?? 0);
+        $this->usage['output'] += (int)($meta['candidatesTokenCount'] ?? 0) + (int)($meta['thoughtsTokenCount'] ?? 0);
+        $this->usage['calls']++;
         return $decoded;
     }
 }

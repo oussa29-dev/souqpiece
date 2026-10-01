@@ -41,7 +41,8 @@ $sessions = [
 $provider = ai_make_provider($config);
 $dispatcher = ai_build_tool_dispatcher($pdo);
 $schemas = ai_tool_schemas();
-echo "Provider: {$config['provider']}\n";
+echo "Provider: {$config['provider']} ({$config[$config['provider']]['model']})\n";
+$bilan = ['tours' => 0, 'erreurs' => 0, 'secondes' => 0.0, 'input' => 0, 'output' => 0];
 
 foreach ($sessions as $cle => [$label, $messages, $attendu]) {
     if ($seulement && !in_array($cle, $seulement, true)) {
@@ -52,18 +53,32 @@ foreach ($sessions as $cle => [$label, $messages, $attendu]) {
     foreach ($messages as $message) {
         $history = array_map(fn($r) => ['role' => $r['role'], 'text' => $r['message']], $rows);
         $systemPrompt = ai_system_prompt() . ai_store_info_block($pdo, $config) . ai_session_context($pdo, $rows);
+        $avant = $provider->usage ?? ['input' => 0, 'output' => 0, 'calls' => 0];
         $t0 = microtime(true);
         try {
             $result = $provider->converse($systemPrompt, $history, $message, $schemas, $dispatcher);
         } catch (Throwable $e) {
             echo "\n> $message\n!! ERREUR provider: " . $e->getMessage() . "\n";
+            $bilan['erreurs']++;
             break;
         }
         $duree = round(microtime(true) - $t0, 1);
+        $apres = $provider->usage ?? $avant;
+        $in = $apres['input'] - $avant['input'];
+        $out = $apres['output'] - $avant['output'];
+        $bilan['tours']++;
+        $bilan['secondes'] += $duree;
+        $bilan['input'] += $in;
+        $bilan['output'] += $out;
         $outils = array_map(fn($c) => $c['name'] . json_encode($c['args'] ?? [], JSON_UNESCAPED_UNICODE), $result['tools_called'] ?? []);
-        echo "\n> $message   ({$duree}s)\n  tools: " . ($outils ? implode(' ; ', $outils) : '-') . "\n" . preg_replace('/^/m', '  ', $result['text']) . "\n";
+        echo "\n> $message   ({$duree}s, tokens in $in / out $out)\n  tools: " . ($outils ? implode(' ; ', $outils) : '-') . "\n" . preg_replace('/^/m', '  ', $result['text']) . "\n";
         $rows[] = ['role' => 'user', 'message' => $message, 'tools_called' => null];
         $rows[] = ['role' => 'assistant', 'message' => $result['text'], 'tools_called' => $result['tools_called'] ? json_encode($result['tools_called'], JSON_UNESCAPED_UNICODE) : null];
         sleep(2);
     }
 }
+
+$t = max(1, $bilan['tours']);
+printf("\n%s\nSUMMARY %s: %d turns, %d provider errors, avg %.1fs/turn, avg tokens/turn in %d / out %d (totals in %d / out %d)\n",
+    str_repeat('=', 70), $config['provider'], $bilan['tours'], $bilan['erreurs'], $bilan['secondes'] / $t,
+    $bilan['input'] / $t, $bilan['output'] / $t, $bilan['input'], $bilan['output']);

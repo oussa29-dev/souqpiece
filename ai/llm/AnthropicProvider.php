@@ -5,6 +5,9 @@ class AnthropicProvider implements LlmProvider
 {
     private string $apiKey;
     private string $model;
+    // Cumulative tokens billed by every API call this object made - read by
+    // ai/eval_chat.php to estimate cost per conversation.
+    public array $usage = ['input' => 0, 'output' => 0, 'calls' => 0];
 
     public function __construct(string $apiKey, string $model = 'claude-haiku-4-5-20251001')
     {
@@ -113,6 +116,9 @@ class AnthropicProvider implements LlmProvider
             $msg = $decoded['error']['message'] ?? $raw;
             throw new RuntimeException("Anthropic API error (HTTP $httpCode): $msg");
         }
+        $this->usage['input'] += (int)($decoded['usage']['input_tokens'] ?? 0);
+        $this->usage['output'] += (int)($decoded['usage']['output_tokens'] ?? 0);
+        $this->usage['calls']++;
         return $decoded;
     }
 }
