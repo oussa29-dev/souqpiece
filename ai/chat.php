@@ -66,15 +66,19 @@ if ((int)$stmt->fetchColumn() >= $per5min) {
 require_once __DIR__ . '/tools.php';
 require_once __DIR__ . '/tool_schemas.php';
 require_once __DIR__ . '/prompt.php';
+require_once __DIR__ . '/context.php';
 require_once __DIR__ . '/llm/factory.php';
 
 // Recent history for this session, oldest first.
 $historyLimit = $config['history_turns'] ?? 10;
-$stmt = $pdo->prepare('SELECT role, message FROM ai_conversation WHERE id_session = ? ORDER BY id DESC LIMIT ?');
+$stmt = $pdo->prepare('SELECT role, message, tools_called FROM ai_conversation WHERE id_session = ? ORDER BY id DESC LIMIT ?');
 $stmt->bindValue(1, $id_session, PDO::PARAM_STR);
 $stmt->bindValue(2, $historyLimit * 2, PDO::PARAM_INT); // *2: user+assistant pairs
 $stmt->execute();
-$history = array_reverse(array_map(fn($r) => ['role' => $r['role'], 'text' => $r['message']], $stmt->fetchAll(PDO::FETCH_ASSOC)));
+$historyRows = array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC));
+$history = array_map(fn($r) => ['role' => $r['role'], 'text' => $r['message']], $historyRows);
+
+$systemPrompt = ai_system_prompt() . ai_store_info_block($pdo, $config) . ai_session_context($pdo, $historyRows);
 
 $logUser = $pdo->prepare('INSERT INTO ai_conversation (id_session, role, message) VALUES (?, ?, ?)');
 $logUser->execute([$id_session, 'user', $message]);
@@ -82,7 +86,7 @@ $logUser->execute([$id_session, 'user', $message]);
 try {
     $provider = ai_make_provider($config);
     $dispatcher = ai_build_tool_dispatcher($pdo);
-    $result = $provider->converse(ai_system_prompt(), $history, $message, ai_tool_schemas(), $dispatcher);
+    $result = $provider->converse($systemPrompt, $history, $message, ai_tool_schemas(), $dispatcher);
 } catch (Throwable $e) {
     // Never leak raw provider/API exception details (could contain internal
     // routing/config info) to the client - log server-side only.

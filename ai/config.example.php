@@ -31,6 +31,14 @@ return [
     'max_message_length' => 1000,
     'history_turns' => 10,
 
+    // Store facts the assistant may give, beyond the name/phone/Facebook it
+    // already reads from the `setting` table (Dashboard > Parametre). Plain
+    // text, one fact per line; leave empty until the store has confirmed
+    // them - the assistant then answers "I don't have that detail" and gives
+    // the phone number, never a guess.
+    // 'store_info' => "Address: ...\nOpening hours: ...\nWholesale: ...",
+    'store_info' => '',
+
     'gemini' => [
         'api_key' => 'PUT_YOUR_GEMINI_API_KEY_HERE',
         'model' => 'gemini-flash-latest',

@@ -121,6 +121,7 @@ class GroqProvider implements LlmProvider
             if (preg_match('/try again in ([\d.]+)s/', $msg, $m)) {
                 $wait = (float)$m[1] + 0.5;
             }
+            error_log(sprintf('Groq 429 (rate limit), waiting %.1fs before retry', $wait));
             usleep((int)($wait * 1_000_000));
             return $this->call($payload, $retriesLeft - 1);
         }
@@ -133,7 +134,8 @@ class GroqProvider implements LlmProvider
         // of the time), so a bounded retry is reasonable here - a genuinely
         // broken request (bad schema, etc) would fail identically on retry
         // and still surface after retries are exhausted.
-        if ($httpCode === 400 && $retriesLeft > 0 && str_contains($decoded['error']['message'] ?? '', 'tool call validation failed')) {
+        // strpos, not str_contains: production runs PHP 7.4.
+        if ($httpCode === 400 && $retriesLeft > 0 && strpos($decoded['error']['message'] ?? '', 'tool call validation failed') !== false) {
             usleep(500_000);
             return $this->call($payload, $retriesLeft - 1);
         }

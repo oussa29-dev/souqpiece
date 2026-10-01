@@ -194,7 +194,11 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     if (empty($idProds)) {
         // Alias-expanded exact search found nothing - last-resort bounded
         // fuzzy fallback (see ai_fuzzy_libelle_fallback docblock).
-        $idProds = ai_fuzzy_libelle_fallback($pdo, implode(' ', $terms), $limit);
+        // With a vehicle/subcategory filter, most fuzzy candidates are
+        // dropped by the final query - keep a wide pool, or "Vilbroqeun"
+        // for the Coaster finds nothing although VILBROKEN is linked to it.
+        $pool = ($id_voiture !== null || $id_sous_categorie !== null) ? 500 : $limit;
+        $idProds = ai_fuzzy_libelle_fallback($pdo, implode(' ', $terms), $pool);
         if (empty($idProds)) {
             return [];
         }
@@ -317,6 +321,9 @@ function ai_lookup_by_reference(PDO $pdo, string $reference): array
     $grouped = [];
     foreach ($rows as $row) {
         if ((int)$row['prix'] <= 0) {
+            // No id either: given one, the model built a product link itself
+            // (eval_chat F), despite the prompt forbidding it.
+            unset($row['id_produit']);
             $row['prix'] = null;
             $row['prix_non_disponible'] = true;
             $brand = $row['marquepiece'] !== '' ? $row['marquepiece'] : 'NON SPECIFIE';

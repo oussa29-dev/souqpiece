@@ -31,6 +31,7 @@ $recherches = [
     ['#28 culasse coaster', 'culasse coaster', null, '/CULASSE/i', [76], 1],
     ['#66 abreviation + vehicule', 'vilb coaster', null, '/VIL/i', [76], 1],
     ['#68 faute de frappe', 'Vilbroqeun', null, '/VIL/i', null, 1],
+    ['#68 faute de frappe + vehicule', 'Vilbroqeun', 76, '/VIL/i', [76], 1],
     ['vilebrequin, orthographe correcte', 'vilebrequin', null, '/VIL/i', null, 1],
     ['#53 plateau NSP130 - 2 lies a la 42', 'plateau', 42, '/PLAT/i', [42], 1],
     ['#54 abreviation "emb"', 'kit emb', 42, '/KIT.*EMB/i', [42], 1],
@@ -114,6 +115,12 @@ foreach ($references as [$label, $ref, $trouve, $prixDispo]) {
     if ($passe && $trouve && $prixDispo !== null) {
         $avecPrix = array_filter($lignes, fn($l) => empty($l['prix_non_disponible']));
         $passe = $prixDispo ? count($avecPrix) > 0 : count($avecPrix) === 0;
+        // A price-0 row must give the model nothing to build a link from.
+        foreach ($lignes as $l) {
+            if (!empty($l['prix_non_disponible']) && (isset($l['id_produit']) || isset($l['url']))) {
+                $passe = false;
+            }
+        }
     }
     $affiche($passe, "reference \"$ref\" ($label)", count($lignes) . ' ligne(s): ' . json_encode(array_map(fn($l) => [$l['reference'], $l['prix'] ?? null], array_slice($lignes, 0, 3)), JSON_UNESCAPED_UNICODE));
 }
@@ -129,6 +136,32 @@ foreach ($vehicules as [$label, $texte, $unique, $attendus]) {
         $passe = $r['unique'] === false && ($attendus === null || $trie === $attendus);
     }
     $affiche($passe, "vehicle \"$texte\" ($label)", 'unique=' . json_encode($r['unique']) . ' ids=' . json_encode($ids));
+}
+
+// Session memory (ai/context.php): what a follow-up turn must inherit,
+// rebuilt from the logged tools_called of the real sessions.
+require_once __DIR__ . '/context.php';
+$contextes = [
+    ['#66-#68 "Vilbroqeun" garde le Coaster', [
+        ['role' => 'user', 'message' => 'Vilb coaster', 'tools_called' => null],
+        ['role' => 'assistant', 'message' => '...', 'tools_called' => '[{"name":"resolve_vehicle","args":{"free_text":"coaster"}},{"name":"search_products","args":{"id_voiture":76,"limit":8,"query":"vilb"}}]'],
+    ], ['/id_voiture=76/', '/COASTER/', '/"vilb"/']],
+    ['#46-#50 "Nsp130" garde la piece "Plateau"', [
+        ['role' => 'user', 'message' => 'Plateau', 'tools_called' => null],
+        ['role' => 'assistant', 'message' => '...', 'tools_called' => '[{"name":"search_products","args":{"limit":8,"query":"Plateau"}}]'],
+        ['role' => 'user', 'message' => 'Yaris', 'tools_called' => null],
+        ['role' => 'assistant', 'message' => '...', 'tools_called' => '[{"name":"resolve_vehicle","args":{"free_text":"Yaris"}}]'],
+    ], ['/"Plateau"/']],
+    ['#60-62 "4" complete "yaris" non resolu', [
+        ['role' => 'user', 'message' => 'Filter yaris', 'tools_called' => null],
+        ['role' => 'assistant', 'message' => '...', 'tools_called' => '[{"name":"resolve_vehicle","args":{"free_text":"yaris"}}]'],
+    ], ['/not yet narrowed.*"yaris"/']],
+    ['nouvelle session: aucun contexte', [], ['/^$/']],
+];
+foreach ($contextes as [$label, $rows, $motifs]) {
+    $texte = trim(ai_session_context($pdo, $rows));
+    $manquants = array_filter($motifs, fn($m) => !preg_match($m, $texte));
+    $affiche($manquants === [], "context ($label)", 'manque ' . implode(' ', $manquants) . ' dans: ' . substr($texte, 0, 160));
 }
 
 $total = $ok + count($echecs);
