@@ -41,7 +41,9 @@ return [
 
     'gemini' => [
         'api_key' => 'PUT_YOUR_GEMINI_API_KEY_HERE',
-        'model' => 'gemini-flash-latest',
+        // Exact version, never a "-latest" alias: Google moves aliases to
+        // newer models (different price/behaviour) without notice.
+        'model' => 'gemini-3.5-flash-lite',
     ],
 
     'anthropic' => [
