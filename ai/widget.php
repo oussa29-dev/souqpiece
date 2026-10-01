@@ -164,14 +164,28 @@ if (empty($__ai_config['enabled']) && empty($_SESSION['ai_preview'])) {
     var langSelect = document.getElementById('ai-chat-lang-select');
     var opened = false;
 
-    toggle.addEventListener('click', function () {
-        opened = !opened;
+    // Open/closed state survives page changes (sessionStorage = this tab
+    // only), so following a product link and coming back keeps the chat
+    // where the customer left it. Storage can be unavailable (private
+    // mode, blocked site data) - the widget then simply starts closed.
+    function memoriserOuverture(etat) {
+        try { sessionStorage.setItem('ai_chat_open', etat ? '1' : '0'); } catch (e) {}
+    }
+    function setOpened(etat) {
+        opened = etat;
         panel.hidden = !opened;
-        if (opened) input.focus();
+        memoriserOuverture(opened);
+        if (opened) {
+            input.focus();
+            messages.scrollTop = messages.scrollHeight;
+        }
+    }
+
+    toggle.addEventListener('click', function () {
+        setOpened(!opened);
     });
     closeBtn.addEventListener('click', function () {
-        opened = false;
-        panel.hidden = true;
+        setOpened(false);
     });
 
     // Renders assistant/user text as plain text nodes, EXCEPT for
@@ -208,6 +222,29 @@ if (empty($__ai_config['enabled']) && empty($_SESSION['ai_preview'])) {
         messages.scrollTop = messages.scrollHeight;
         return div;
     }
+
+    // Restore this visitor's conversation (kept server-side per session) on
+    // every page load - without it the panel came back empty after opening
+    // a product link. Inserted BEFORE anything already shown, in case the
+    // customer typed a new message while this request was in flight.
+    fetch('ai/history.php', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!data.ok || !data.messages || !data.messages.length) return;
+            var premier = messages.firstChild;
+            data.messages.forEach(function (m) {
+                var div = addMessage(m.role === 'user' ? 'user' : 'assistant', m.message);
+                messages.insertBefore(div, premier);
+            });
+            messages.scrollTop = messages.scrollHeight;
+        })
+        .catch(function () {});
+
+    try {
+        if (sessionStorage.getItem('ai_chat_open') === '1') {
+            setOpened(true);
+        }
+    } catch (e) {}
 
     form.addEventListener('submit', function (e) {
         e.preventDefault();
