@@ -163,11 +163,25 @@ $contextes = [
         ['role' => 'user', 'message' => 'Filter yaris', 'tools_called' => null],
         ['role' => 'assistant', 'message' => '...', 'tools_called' => '[{"name":"resolve_vehicle","args":{"free_text":"yaris"}}]'],
     ], ['/not yet narrowed.*"yaris"/']],
+    // Production 01/10: the previous request's Corolla (id 54) and part
+    // leaked into the new Yaris request ("!" = must NOT appear).
+    ['prod 01/10 nouvelle demande Yaris apres Corolla', [
+        ['role' => 'user', 'message' => 'Compresseur corolla', 'tools_called' => null],
+        ['role' => 'assistant', 'message' => '...', 'tools_called' => '[{"name":"resolve_vehicle","args":{"free_text":"corolla"}}]'],
+        ['role' => 'user', 'message' => 'Nde180', 'tools_called' => null],
+        ['role' => 'assistant', 'message' => '...', 'tools_called' => '[{"name":"resolve_vehicle","args":{"free_text":"corolla nde180"}},{"name":"search_products","args":{"id_voiture":54,"query":"Compresseur"}}]'],
+        ['role' => 'user', 'message' => 'Dem yaris', 'tools_called' => null],
+        ['role' => 'assistant', 'message' => '...', 'tools_called' => null],
+        ['role' => 'user', 'message' => 'Yaris 2', 'tools_called' => null],
+        ['role' => 'assistant', 'message' => '...', 'tools_called' => '[{"name":"resolve_vehicle","args":{"free_text":"yaris 2"}}]'],
+    ], ['/not yet narrowed.*"yaris 2"/', '!/id_voiture=54/', '!/Compresseur/']],
     ['nouvelle session: aucun contexte', [], ['/^$/']],
 ];
 foreach ($contextes as [$label, $rows, $motifs]) {
     $texte = trim(ai_session_context($pdo, $rows));
-    $manquants = array_filter($motifs, fn($m) => !preg_match($m, $texte));
+    $manquants = array_filter($motifs, function ($m) use ($texte) {
+        return $m[0] === '!' ? preg_match(substr($m, 1), $texte) === 1 : !preg_match($m, $texte);
+    });
     $affiche($manquants === [], "context ($label)", 'manque ' . implode(' ', $manquants) . ' dans: ' . substr($texte, 0, 160));
 }
 

@@ -13,7 +13,16 @@ function ai_session_context(PDO $pdo, array $historyRows): string
     $idVoiture = null;
     $partie = null;
     $vehiculeTexte = null;
+    $vehiculeFixe = false;
+    $partieFixee = false;
 
+    // Newest call first. The FIRST vehicle signal met decides the current
+    // vehicle: a resolve_vehicle that was not yet followed by a search means
+    // the customer moved on to another car, and any older id_voiture belongs
+    // to the previous request. Logged production bug (01/10): "Compresseur
+    // corolla" -> Nde180 -> "Dem yaris" -> "Yaris 2" -> "Ncp90" kept
+    // reporting the Corolla (id 54) as identified, and the model answered
+    // "Ncp90" with an invented id 57 (a Revo).
     foreach (array_reverse($historyRows) as $row) {
         if ($row['role'] !== 'assistant' || empty($row['tools_called'])) {
             continue;
@@ -23,18 +32,33 @@ function ai_session_context(PDO $pdo, array $historyRows): string
             continue;
         }
         foreach (array_reverse($appels) as $appel) {
+            $nom = $appel['name'] ?? '';
             $args = $appel['args'] ?? [];
-            if ($idVoiture === null && !empty($args['id_voiture'])) {
-                $idVoiture = (int)$args['id_voiture'];
+            $idAppel = (int)($args['id_voiture'] ?? 0);
+
+            if (!$vehiculeFixe) {
+                if ($idAppel > 0) {
+                    $idVoiture = $idAppel;
+                    $vehiculeFixe = true;
+                } elseif ($nom === 'resolve_vehicle' && !empty($args['free_text'])) {
+                    $vehiculeTexte = (string)$args['free_text'];
+                    $vehiculeFixe = true;
+                }
             }
-            if ($partie === null && ($appel['name'] ?? '') === 'search_products' && !empty($args['query'])) {
-                $partie = (string)$args['query'];
-            }
-            if ($vehiculeTexte === null && ($appel['name'] ?? '') === 'resolve_vehicle' && !empty($args['free_text'])) {
-                $vehiculeTexte = (string)$args['free_text'];
+
+            if (!$partieFixee && $nom === 'search_products' && !empty($args['query'])) {
+                $partieFixee = true;
+                // A part searched for a vehicle other than the current one
+                // belongs to an earlier request - the customer named a new
+                // part since, which the model reads from the messages. A part
+                // searched before any vehicle was known stays ("Plateau" ->
+                // "Yaris" -> "Nsp130").
+                if ($idAppel === 0 || $idAppel === $idVoiture) {
+                    $partie = (string)$args['query'];
+                }
             }
         }
-        if ($idVoiture !== null && $partie !== null) {
+        if ($vehiculeFixe && $partieFixee) {
             break;
         }
     }

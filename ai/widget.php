@@ -97,7 +97,9 @@ if (empty($__ai_config['enabled']) && empty($_SESSION['ai_preview'])) {
 }
 .ai-msg a { color: #e12929; font-weight: 600; text-decoration: underline; }
 .ai-msg-user a { color: #ffe3e3; }
-.ai-msg-pending { opacity: .6; font-style: italic; }
+.ai-msg-pending { opacity: .6; font-style: italic; animation: ai-pending-pulse 1.4s ease-in-out infinite; }
+@keyframes ai-pending-pulse { 0%, 100% { opacity: .45; } 50% { opacity: .85; } }
+@media (prefers-reduced-motion: reduce) { .ai-msg-pending { animation: none; } }
 
 #ai-chat-form {
     display: flex; gap: 8px; padding: 10px; border-top: 1px solid #eee; background: #fff;
@@ -256,10 +258,13 @@ if (empty($__ai_config['enabled']) && empty($_SESSION['ai_preview'])) {
         input.disabled = true;
         sendBtn.disabled = true;
 
+        // A visible "searching" state instead of a bare "…" - a reply takes
+        // 2-9 s (measured in production 01/10), which reads as broken
+        // without it.
         var pending = document.createElement('div');
         pending.className = 'ai-msg ai-msg-assistant ai-msg-pending';
         pending.dir = 'auto';
-        pending.textContent = '…';
+        pending.textContent = 'جاري البحث في الكتالوج… / Recherche dans le catalogue…';
         messages.appendChild(pending);
         messages.scrollTop = messages.scrollHeight;
 

@@ -44,6 +44,7 @@ $sessions = [
     'F' => ['#30 reference sans prix', ['13508-30011'], 'says the part is listed (PIGNON INTERMEDIAIRE) and to contact the store for the price - not "not found"'],
     'G' => ['#18 vente en gros', ['سلعة جملة'], 'Arabic; no invented wholesale policy; gives the store phone'],
     'H' => ['#34-39 demarreur Yaris 2', ['Dem yaris', 'Ncp90'], 'ends with DEMARREUR products for the Yaris 2 NCP90, each line starting with the product name'],
+    'I' => ['prod 01/10 changement de voiture', ['Compresseur corolla', 'Nde180', 'Dem yaris', 'Yaris 2', 'Ncp90'], 'compresseur for the Corolla NDE180 (id 54), then DEMARREUR for the Yaris 2 NCP90 (id 51) - never the Corolla, never an invented id (was 57, a Revo)'],
 ];
 
 $provider = ai_make_provider($config);
