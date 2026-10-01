@@ -25,7 +25,7 @@ return [
     'import_classification_provider' => 'gemini',
 
     'rate_limit' => [
-        'max_per_session_per_day' => 40,
+        'max_per_session_per_day' => 25,
         'max_per_session_per_5min' => 8,
     ],
     'max_message_length' => 1000,

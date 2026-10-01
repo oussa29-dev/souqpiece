@@ -48,7 +48,7 @@ $id_session = session_id();
 // session hammering the endpoint, not just abuse. Free-tier provider quotas
 // are tight enough that this matters even for legitimate heavy use.
 $rl = $config['rate_limit'] ?? [];
-$perDay = $rl['max_per_session_per_day'] ?? 40;
+$perDay = $rl['max_per_session_per_day'] ?? 25;
 $per5min = $rl['max_per_session_per_5min'] ?? 8;
 
 $stmt = $pdo->prepare("SELECT COUNT(*) FROM ai_conversation WHERE id_session = ? AND role = 'user' AND created_at > (NOW() - INTERVAL 1 DAY)");
