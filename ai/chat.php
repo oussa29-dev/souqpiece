@@ -76,7 +76,20 @@ $stmt = $pdo->prepare('SELECT role, message, tools_called FROM ai_conversation W
 $stmt->bindValue(1, $id_session, PDO::PARAM_STR);
 $stmt->bindValue(2, $historyLimit * 2, PDO::PARAM_INT); // *2: user+assistant pairs
 $stmt->execute();
-$historyRows = array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC));
+// A failed exchange (see "_error" below) is dropped as a pair: the
+// unanswered customer message left alone made the model answer it instead
+// of the new one ("Culasse coaster" got a reply about the failed "Kit emb
+// yaris 2007").
+$historyRows = [];
+foreach (array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC)) as $row) {
+    if ($row['role'] === 'assistant' && strpos((string)$row['tools_called'], '"_error"') !== false) {
+        if ($historyRows && end($historyRows)['role'] === 'user') {
+            array_pop($historyRows);
+        }
+        continue;
+    }
+    $historyRows[] = $row;
+}
 $history = array_map(fn($r) => ['role' => $r['role'], 'text' => $r['message']], $historyRows);
 
 $systemPrompt = ai_system_prompt() . ai_store_info_block($pdo, $config) . ai_session_context($pdo, $historyRows);
@@ -84,16 +97,48 @@ $systemPrompt = ai_system_prompt() . ai_store_info_block($pdo, $config) . ai_ses
 $logUser = $pdo->prepare('INSERT INTO ai_conversation (id_session, role, message) VALUES (?, ?, ?)');
 $logUser->execute([$id_session, 'user', $message]);
 
+// Failures are recorded in ai_conversation itself, as an assistant row whose
+// tools_called is a single "_error" pseudo-call - production's PHP error log
+// location is unknown/unreadable, and a turn cut short there (01/10, "Kit
+// emb yaris 2007": user row saved, nothing else, nothing in the logs) left
+// no way to know why. Excluded from the history sent to the model.
+$debutTour = microtime(true);
+$reponseEnregistree = false;
+$messageIndisponible = 'المساعد غير متوفر مؤقتاً، حاول لاحقاً. / L\'assistant est temporairement indisponible, réessayez plus tard.';
+$enregistrerEchec = function (string $cause) use ($pdo, $id_session, $debutTour, $messageIndisponible, &$reponseEnregistree) {
+    if ($reponseEnregistree) {
+        return;
+    }
+    $reponseEnregistree = true;
+    $appel = [['name' => '_error', 'args' => ['cause' => mb_substr($cause, 0, 500), 'secondes' => round(microtime(true) - $debutTour, 1)]]];
+    $pdo->prepare('INSERT INTO ai_conversation (id_session, role, message, tools_called) VALUES (?, ?, ?, ?)')
+        ->execute([$id_session, 'assistant', $messageIndisponible, json_encode($appel, JSON_UNESCAPED_UNICODE)]);
+};
+// A fatal error (time limit, memory...) skips catch blocks entirely.
+register_shutdown_function(function () use ($enregistrerEchec, $messageIndisponible, &$reponseEnregistree) {
+    $err = error_get_last();
+    if ($reponseEnregistree || !$err || !in_array($err['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        return;
+    }
+    $enregistrerEchec('fatal: ' . $err['message']);
+    echo json_encode(['ok' => false, 'error' => $messageIndisponible], JSON_UNESCAPED_UNICODE);
+});
+// A turn can need several provider calls; on the free tier each one took
+// 15-22 s (measured 03/10). Raise PHP's own limit where the host allows it.
+@set_time_limit(120);
+
 try {
     $provider = ai_make_provider($config);
     $dispatcher = ai_build_tool_dispatcher($pdo);
     $result = ai_converse_verifie($provider, $systemPrompt, $history, $message, ai_tool_schemas(), $dispatcher);
 } catch (Throwable $e) {
     // Never leak raw provider/API exception details (could contain internal
-    // routing/config info) to the client - log server-side only.
+    // routing/config info) to the client - stored server-side only.
     error_log('ai/chat.php provider error: ' . $e->getMessage());
-    fail('المساعد غير متوفر مؤقتاً، حاول لاحقاً. / L\'assistant est temporairement indisponible, réessayez plus tard.');
+    $enregistrerEchec($e->getMessage());
+    fail($messageIndisponible);
 }
+$reponseEnregistree = true;
 
 $reply = $result['text'] !== '' ? $result['text'] : 'عذراً، لم أتمكن من معالجة طلبك. / Désolé, je n\'ai pas pu traiter votre demande.';
 
