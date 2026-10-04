@@ -24,6 +24,9 @@ function ai_cles_latin(string $mot): array
         'Ô' => 'O', 'Û' => 'U', 'Ç' => 'S',
     ]));
     $m = preg_replace('/[^A-Z]/', '', $m);
+    // A written X sounds "ks" (AXE = اكس) - converted before X becomes the
+    // internal code for the "ch" sound below.
+    $m = str_replace('X', 'KS', $m);
     // Multi-letter sounds first, then context-dependent C and G.
     $m = strtr($m, ['CH' => 'X', 'SH' => 'X', 'PH' => 'F', 'QU' => 'K', 'CK' => 'K']);
     $m = preg_replace('/GU(?=[EIY])/', 'K', $m);
@@ -33,6 +36,10 @@ function ai_cles_latin(string $mot): array
 
     $formes = [$m];
     if (strlen($m) > 3 && preg_match('/[TDSX]$/', $m)) {
+        $formes[] = substr($m, 0, -1);
+    }
+    // Final R of -IER is silent (ETRIER sounds "étrié" = تري / اتري).
+    if (strlen($m) > 4 && substr($m, -3) === 'IER') {
         $formes[] = substr($m, 0, -1);
     }
     foreach ($formes as $f) {
@@ -82,7 +89,12 @@ function ai_mots_courants_arabes(): array
 {
     return ['بغيت', 'نحب', 'حاب', 'عندكم', 'عندك', 'كاين', 'كاش', 'واش', 'السعر', 'الثمن', 'سعر', 'ثمن', 'بشحال',
         'شحال', 'تاع', 'ديال', 'متاع', 'سيارة', 'طوموبيل', 'لوطو', 'محرك', 'قطعة', 'قطع', 'غيار', 'من', 'في', 'على',
-        'هل', 'لديكم', 'متوفر', 'نتاع', 'ليا', 'لي', 'هذي', 'هاذي', 'سلام', 'شكرا', 'صحيت', 'مرحبا'];
+        'هل', 'لديكم', 'متوفر', 'نتاع', 'ليا', 'لي', 'هذي', 'هاذي', 'سلام', 'شكرا', 'صحيت', 'مرحبا',
+        // Measured false hits (04/10): خلاص -> CULASSE, قبل -> CABLE,
+        // فوق -> FEUX, بلي -> BIELLE...
+        'خلاص', 'قبل', 'فوق', 'غير', 'برك', 'بلي', 'بلا', 'بصح', 'مليح', 'زوج', 'يمين', 'نعم', 'كم', 'معاك',
+        'ليك', 'بيك', 'عفاك', 'نتا', 'غالي', 'نسقسي', 'تحت', 'قدام', 'لور', 'يسار', 'جديد', 'قديم', 'اصلي',
+        'مكانش', 'ماكانش', 'تقدر', 'نقدر', 'توصيل', 'التوصيل'];
 }
 
 function ai_est_arabe(string $mot): bool
@@ -102,7 +114,9 @@ function ai_vocabulaire_catalogue(PDO $pdo): array
     $mots = [];
     foreach ($pdo->query('SELECT libelle FROM produit WHERE prix > 0')->fetchAll(PDO::FETCH_COLUMN) as $libelle) {
         foreach (preg_split('/[^A-Za-zÀ-ÿ]+/u', (string)$libelle) as $mot) {
-            if (strlen($mot) >= 3) {
+            // Words with no vowel are model codes (HZJ, TXR, NSX), not
+            // part names - they only produced false matches.
+            if (strlen($mot) >= 3 && preg_match('/[AEIOUYaeiouy]/', $mot)) {
                 $mots[strtoupper($mot)] = ($mots[strtoupper($mot)] ?? 0) + 1;
             }
         }
@@ -131,8 +145,10 @@ function ai_ecarts_meme_longueur(string $a, string $b): int
 // - same first sound (ماستر matched COASTER);
 // - same skeleton length, substitutions only (ماستر matched MOTEUR by a
 //   dropped letter); up to 1 substitution for 4-5 consonants, 2 for 6+;
-// - under 3 consonants nothing (SB is both SOUPAPE and SABO); at exactly 3,
-//   the long vowels must also agree (ريترو matched ROTOR / RETOUR);
+// - at exactly 3 consonants the long vowels must also agree (ريترو matched
+//   ROTOR / RETOUR); at 2 (اكس = AXE, تري = ETRIER, production 04/10) only
+//   exact consonants, near-identical vowels and a word used at least 10
+//   times in the catalog (SB is both SOUPAPE and SABO); under 2 nothing;
 // - among candidates, only the closest vowel pattern is kept (فيلتر is
 //   FILTER, not FLOTTEUR).
 function ai_correspondances_phonetiques(PDO $pdo, string $motArabe): array
@@ -152,11 +168,14 @@ function ai_correspondances_phonetiques(PDO $pdo, string $motArabe): array
     foreach ($cles as $cle) {
         $sq = $cle['sq'];
         $n = strlen($sq);
-        if ($n < 3) {
+        if ($n < 2) {
             continue;
         }
         $tolerance = $n <= 3 ? 0 : ($n <= 5 ? 1 : 2);
         foreach (ai_vocabulaire_catalogue($pdo) as $motCatalogue => $clesLatin) {
+            if ($n === 2 && $clesLatin['n'] < 10) {
+                continue;
+            }
             $ecart = null;
             foreach ($clesLatin['sq'] as $sc) {
                 if (strlen($sc) === $n && $sc[0] === $sq[0]) {
@@ -169,8 +188,16 @@ function ai_correspondances_phonetiques(PDO $pdo, string $motArabe): array
             if ($ecart === null) {
                 continue;
             }
-            $dv = min(array_map(fn($v) => levenshtein($cle['voc'], $v), $clesLatin['voc']));
-            if ($n === 3 && $dv > 1) {
+            // A leading vowel is often written on one side only (ETRIER = تري
+            // = اتري): also compare without it, on both sides.
+            $vocArabeSans = preg_replace('/^[AIU]+/', '', $cle['voc']);
+            $dv = min(array_map(function ($v) use ($cle, $vocArabeSans) {
+                $sansInitiale = preg_replace('/^[AIU]+/', '', $v);
+                return min(levenshtein($cle['voc'], $v), levenshtein($vocArabeSans, $sansInitiale));
+            }, $clesLatin['voc']));
+            // 2 consonants: vowels must be identical - with one difference
+            // allowed, 1 everyday word in 5 matched something (بلي -> BIELLE).
+            if (($n === 2 && $dv > 0) || ($n === 3 && $dv > 1)) {
                 continue;
             }
             if (!isset($distances[$motCatalogue]) || [$ecart, $dv] < $distances[$motCatalogue]) {

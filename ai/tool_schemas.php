@@ -37,7 +37,7 @@ function ai_tool_schemas(): array
         ],
         [
             'name' => 'resolve_vehicle',
-            'description' => 'Resolve free-text vehicle mentions (brand and/or model, in French or transliterated Arabic) to an id_voiture usable by other tools. Returns {unique: bool, matches: [up to 5 ranked candidates]}. `unique` is the deterministic signal for whether the customer needs to be asked to specify the exact model - see rule 9 in your instructions, it is not a judgment call. Pass the year too when the customer gives one ("corolla 2008"): it narrows the candidates by production years. When you ask the customer to choose, name each candidate by its `label` (model and years) - never show an id_voiture.',
+            'description' => 'Resolve free-text vehicle mentions (brand and/or model, in French or transliterated Arabic) to an id_voiture usable by other tools. Returns {unique: bool, matches: [up to 5 ranked candidates]}. `unique` is the deterministic signal for whether the customer needs to be asked to specify the exact model - see rule 9 in your instructions, it is not a judgment call. Pass the year too when the customer gives one ("corolla 2008"): it narrows the candidates by production years. When you ask the customer to choose, name each candidate by its `label` (model and years) - never show an id_voiture. `not_vehicle_words` lists the words of free_text that matched no vehicle: they are almost always the part the customer wants ("اكس تري" in "اكس تري فيقو") - search them with search_products, and never include them in the next resolve_vehicle call.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [

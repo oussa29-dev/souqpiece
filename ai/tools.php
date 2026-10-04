@@ -378,16 +378,18 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
             continue;
         }
         $arabe = ai_arabic_alias_lookup($token);
-        $needleTokens[] = mb_strtoupper($arabe !== null ? $arabe[0] : $token);
+        $needleTokens[$token] = mb_strtoupper($arabe !== null ? $arabe[0] : $token);
     }
 
     $scored = [];
+    $tokensUtiles = [];
     foreach ($all as $row) {
         $haystack = mb_strtoupper($row['marque'] . ' ' . $row['modele']);
         $score = 0;
-        foreach ($needleTokens as $token) {
+        foreach ($needleTokens as $original => $token) {
             if (mb_strpos($haystack, $token) !== false) {
                 $score += strlen($token);
+                $tokensUtiles[$original] = true;
             }
         }
         if ($score > 0) {
@@ -419,7 +421,13 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     $unique = count($matches) === 1
         || (count($matches) >= 2 && $matches[0]['score'] > $matches[1]['score']);
 
-    return ['unique' => $unique, 'matches' => $matches];
+    // Words that matched no vehicle at all are most likely the part: a
+    // customer's "اكس تري فيقو" (axe etrier, Vigo) was sent whole as the
+    // vehicle, and once the Vigo was chosen the part was never searched
+    // (production 04/10).
+    $horsVehicule = array_values(array_diff(array_keys($needleTokens), array_keys($tokensUtiles)));
+
+    return ['unique' => $unique, 'matches' => $matches, 'not_vehicle_words' => $horsVehicule];
 }
 
 function ai_get_product(PDO $pdo, int $id_produit, ?int $id_voiture = null): ?array

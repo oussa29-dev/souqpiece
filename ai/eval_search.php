@@ -200,13 +200,18 @@ $phonetiques = [
     'كابتور' => '/^capteur$/', 'ترونغل' => '/^triangle$/', 'بومبا' => '/^pompe$/', 'فيلتر' => '/^filt/',
     'بغيت' => '!', 'السعر' => '!', 'الثمن' => '!', 'محرك' => '!', 'مزال' => '!', 'ماستر' => '!', 'ريترو' => '!',
     'فيزيبل' => '!',
+    // Production 04/10: "اكس تري" / "اكس اتري" (axe etrier) found nothing -
+    // 2-consonant words were never matched, and AXE's X was read as "ch".
+    'اكس' => '/^axe$/', 'تري' => '/^etri/', 'اتري' => '/^etri/', 'ايتري' => '/^etri/',
+    'تندار' => '/^tendeur$/', 'امرتيسار' => '/^amortisseur$/',
+    'بلي' => '!', 'بيك' => '!', 'خلاص' => '!', 'قبل' => '!', 'مكانش' => '!', 'راني' => '!', 'شوي' => '!',
 ];
 foreach ($phonetiques as $mot => $attendu) {
     $r = ai_correspondances_phonetiques($pdo, $mot);
     $passe = $attendu === '!' ? $r === [] : ($r !== [] && preg_match($attendu, $r[0]) === 1);
     $affiche($passe, "phonetique \"$mot\"", 'obtenu: ' . ($r ? implode(', ', $r) : 'rien'));
 }
-foreach ([['بلاكات', 57, '/PLAQUET/i'], ['رولمان', 51, '/ROUL/i'], ['ترونغل', 42, '/TRIANG/i'], ['بومبا', null, '/POMPE/i']] as [$q, $v, $motif]) {
+foreach ([['اكس تري', 60, '/AXE ETRI/i'], ['اكس اتري', 60, '/AXE ETRI/i'], ['تندار امرتيسار', 60, '/TENDEUR AMORT/i'], ['بلاكات', 57, '/PLAQUET/i'], ['رولمان', 51, '/ROUL/i'], ['ترونغل', 42, '/TRIANG/i'], ['بومبا', null, '/POMPE/i']] as [$q, $v, $motif]) {
     $rows = ai_search_products($pdo, $q, $v, null, 8);
     $ok2 = count(array_filter($rows, fn($r) => preg_match($motif, $r['libelle']))) > 0 && preg_match($motif, $rows[0]['libelle'] ?? '');
     $affiche((bool)$ok2, "search phonetique \"$q\"" . ($v ? " v$v" : ''), count($rows) . ' resultat(s), premier: ' . ($rows[0]['libelle'] ?? 'aucun'));
