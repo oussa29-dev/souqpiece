@@ -16,7 +16,10 @@ return [
 
     // Switch provider here only - nothing in ai/tools.php, ai/tool_schemas.php,
     // ai/prompt.php or ai/chat.php ever needs to change.
-    'provider' => 'groq', // 'gemini' | 'anthropic' | 'groq'
+    // Customer assistant: Gemini 3.5 Flash-Lite, paid, through OpenRouter (see
+    // the 'openrouter' block) - most accurate on Arabic/Darija and fastest in
+    // the 06/10 comparison of 4 models on real sessions.
+    'provider' => 'openrouter', // 'openrouter' | 'gemini' | 'anthropic' | 'groq'
 
     // Optional: separate provider for dashboard/include/import_classification.php
     // (stock.php import auto-categorisation) - independent of the provider
