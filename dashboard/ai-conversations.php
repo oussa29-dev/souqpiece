@@ -2,13 +2,56 @@
 // Read-only viewer of the customer assistant's conversations (ai_conversation):
 // sessions list on the left, the selected one as a chat on the right, with
 // the tools each reply used, its response time and any recorded failure.
-// Admin session required, same as every dashboard page; checked before any
-// output so the redirect actually happens.
+//
+// Developer-only: the dashboard has a single shared admin account, so on top
+// of it this page asks for a separate developer password whose hash lives in
+// the gitignored ai/config.php ('dev_password_hash'). No hash configured =
+// page closed to everyone. Not linked from the dashboard menu.
 session_start();
 if (!isset($_SESSION['utilisateur'])) {
     header('location:connexion.php');
     exit;
 }
+$aiConfig = require __DIR__ . '/../ai/config.php';
+$hashDev = (string)($aiConfig['dev_password_hash'] ?? '');
+
+if (isset($_GET['sortir'])) {
+    unset($_SESSION['dev_acces']);
+    header('location:ai-conversations.php');
+    exit;
+}
+$erreurAcces = '';
+if (empty($_SESSION['dev_acces']) && $hashDev !== '' && isset($_POST['dev_password'])) {
+    if (password_verify((string)$_POST['dev_password'], $hashDev)) {
+        session_regenerate_id(true);
+        $_SESSION['dev_acces'] = true;
+        header('location:ai-conversations.php');
+        exit;
+    }
+    sleep(2);
+    $erreurAcces = 'Mot de passe incorrect.';
+}
+if (empty($_SESSION['dev_acces'])) {
+    http_response_code(403);
+    ?><!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Accès développeur</title>
+<style>body{font-family:sans-serif;background:#f4f6f8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+form{background:#fff;padding:28px;border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.08);display:flex;flex-direction:column;gap:12px;min-width:280px}
+input,button{padding:10px;border-radius:8px;border:1px solid #ccc;font-size:15px}button{background:#126CFB;color:#fff;border:none;cursor:pointer}
+.err{color:#a00707;font-size:14px}</style></head><body>
+<?php if ($hashDev === ''): ?>
+    <form><b>Page désactivée</b><span>Aucun mot de passe développeur configuré.</span></form>
+<?php else: ?>
+    <form method="post"><b>Accès développeur</b>
+        <input type="password" name="dev_password" placeholder="Mot de passe développeur" autofocus required>
+        <?php if ($erreurAcces): ?><span class="err"><?= htmlspecialchars($erreurAcces) ?></span><?php endif; ?>
+        <button type="submit">Entrer</button>
+    </form>
+<?php endif; ?>
+</body></html><?php
+    exit;
+}
+
 require_once('database.php');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
@@ -184,6 +227,7 @@ $lienFiltres = function (array $changes) use ($periode, $recherche, $page) {
                 <a class="<?= $cle === $periode ? 'actif' : '' ?>" href="<?= h($lienFiltres(['periode' => $cle, 'page' => 1, 's' => null])) ?>"><?= h($libelle) ?></a>
             <?php endforeach; ?>
             <span style="font-size:14px;color:#555"><?= $totalSessions ?> conversation(s)</span>
+            <a href="?sortir=1" title="Quitter l'accès développeur">Verrouiller</a>
             <form method="get">
                 <input type="hidden" name="periode" value="<?= h($periode) ?>">
                 <input type="text" name="q" value="<?= h($recherche) ?>" placeholder="Chercher un mot (ex. culasse, كيلاس)" dir="auto">

@@ -42,6 +42,11 @@ return [
     // 'store_info' => "Address: ...\nOpening hours: ...\nWholesale: ...",
     'store_info' => '',
 
+    // Developer-only page dashboard/ai-conversations.php: hash of a password
+    // separate from the shared dashboard login. Empty = page closed. Set with:
+    // php -r 'echo password_hash("...", PASSWORD_DEFAULT);'
+    'dev_password_hash' => '',
+
     'gemini' => [
         'api_key' => 'PUT_YOUR_GEMINI_API_KEY_HERE',
         // Exact version, never a "-latest" alias: Google moves aliases to
