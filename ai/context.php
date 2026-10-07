@@ -88,6 +88,23 @@ function ai_session_context(PDO $pdo, array $historyRows): string
         . "Use this for follow-up messages: a bare part name (\"Vilbroqeun\", \"Demareur\") means that part for this same vehicle - search with this id_voiture, do not ask for the vehicle again. A bare vehicle answer (\"Nsp130\") means the last part searched, for that vehicle - search it directly, do not ask which part. Only drop this context when the customer names a different vehicle or a clearly unrelated request.";
 }
 
+// Every id_voiture an earlier turn of this session actually filtered on -
+// vehicles already validated, that a follow-up may reuse without calling
+// resolve_vehicle again (see ai_converse_verifie in guard.php).
+function ai_vehicules_connus(array $historyRows): array
+{
+    $ids = [];
+    foreach ($historyRows as $row) {
+        foreach ((array)json_decode((string)($row['tools_called'] ?? ''), true) as $appel) {
+            $id = (int)($appel['args']['id_voiture'] ?? 0);
+            if ($id > 0 && ($appel['name'] ?? '') !== '_error') {
+                $ids[$id] = true;
+            }
+        }
+    }
+    return array_keys($ids);
+}
+
 // Store contact details for questions about the shop itself. Phone, name
 // and Facebook come from the same `setting` row the site footer shows (the
 // boss edits it in Dashboard > Parametre), so they never drift from the

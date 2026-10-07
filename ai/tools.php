@@ -422,7 +422,7 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     // candidates instead of being matched as text.
     $annee = null;
     $needleTokens = [];
-    foreach (preg_split('/\s+/', trim($free_text)) as $token) {
+    foreach (preg_split('/\s+/u', trim($free_text)) as $token) {
         if ($token === '') {
             continue;
         }
@@ -431,6 +431,11 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
             continue;
         }
         $arabe = ai_arabic_alias_lookup($token);
+        if ($arabe === null && ai_est_arabe($token)) {
+            // Car name in Arabic letters, read by sound (هيلكس = HILUX).
+            $phonetique = ai_correspondances_phonetiques($pdo, $token, ai_vocabulaire_vehicules($pdo));
+            $arabe = $phonetique ?: null;
+        }
         $needleTokens[$token] = mb_strtoupper($arabe !== null ? $arabe[0] : $token);
     }
 
@@ -440,7 +445,12 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
         $haystack = mb_strtoupper($row['marque'] . ' ' . $row['modele']);
         $score = 0;
         foreach ($needleTokens as $original => $token) {
-            if (mb_strpos($haystack, $token) !== false) {
+            // Also letters and digits only: "XLI2024" for "XLI 2024" (production
+            // 06/10, the customer's answer was not recognised and the model
+            // asked for the Corolla model again).
+            $compact = fn($t) => preg_replace('/[^A-Z0-9]/u', '', $t);
+            if (mb_strpos($haystack, $token) !== false
+                || (strlen($compact($token)) >= 4 && strpos($compact($haystack), $compact($token)) !== false)) {
                 $score += strlen($token);
                 $tokensUtiles[$original] = true;
             }
@@ -480,7 +490,14 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     // (production 04/10).
     $horsVehicule = array_values(array_diff(array_keys($needleTokens), array_keys($tokensUtiles)));
 
-    return ['unique' => $unique, 'matches' => $matches, 'not_vehicle_words' => $horsVehicule];
+    $retour = ['unique' => $unique, 'matches' => $matches, 'not_vehicle_words' => $horsVehicule];
+    // No word is a vehicle: the model sent the part as the vehicle ("اكس
+    // اتري" after a Yaris was already chosen) and then told the customer the
+    // "car" was not recognised instead of searching the part.
+    if ($matches === [] && $horsVehicule !== []) {
+        $retour['hint'] = 'None of these words is a vehicle - they are almost certainly the PART the customer wants. Call search_products with them now, using the vehicle already identified in this conversation if there is one. Only ask for the vehicle if none is known yet.';
+    }
+    return $retour;
 }
 
 function ai_get_product(PDO $pdo, int $id_produit, ?int $id_voiture = null): ?array

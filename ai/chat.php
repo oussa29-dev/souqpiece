@@ -130,7 +130,7 @@ register_shutdown_function(function () use ($enregistrerEchec, $messageIndisponi
 try {
     $provider = ai_make_provider($config);
     $dispatcher = ai_build_tool_dispatcher($pdo);
-    $result = ai_converse_verifie($provider, $systemPrompt, $history, $message, ai_tool_schemas(), $dispatcher);
+    $result = ai_converse_verifie($provider, $systemPrompt, $history, $message, ai_tool_schemas(), $dispatcher, ai_vehicules_connus($historyRows));
 } catch (Throwable $e) {
     // Never leak raw provider/API exception details (could contain internal
     // routing/config info) to the client - stored server-side only.

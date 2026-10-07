@@ -253,7 +253,7 @@ $faux = new FauxModele([
         return ['text' => "PLAQUETTE - " . $rows[0]['prix'] . " DA - [voir le produit](produit.php?id=" . $rows[0]['id_produit'] . "&id_voiture=57)\nAUTRE INVENTEE - [voir le produit](produit.php?id=999998)", 'tools_called' => [['name' => 'search_products', 'args' => []]]];
     },
 ]);
-$r = ai_converse_verifie($faux, '', [], 'Plaquet revo', [], ai_build_tool_dispatcher($pdo));
+$r = ai_converse_verifie($faux, '', [], 'Plaquet revo', [], ai_build_tool_dispatcher($pdo), [57]);
 $affiche($faux->appels === 2 && strpos($r['text'], "id=$vraiId") !== false && strpos($r['text'], '99999') === false,
     'guard: produits non retournes par un outil -> nouvel essai, lignes inventees retirees', "appels={$faux->appels} texte=" . substr($r['text'], 0, 150));
 
@@ -263,8 +263,34 @@ $honnete = new FauxModele([
         return ['text' => implode("\n", array_map(fn($p) => "X - [voir le produit](produit.php?id={$p['id_produit']})", $rows)), 'tools_called' => []];
     },
 ]);
-$r = ai_converse_verifie($honnete, '', [], 'Plaquet revo', [], ai_build_tool_dispatcher($pdo));
+$r = ai_converse_verifie($honnete, '', [], 'Plaquet revo', [], ai_build_tool_dispatcher($pdo), [57]);
 $affiche($honnete->appels === 1 && substr_count($r['text'], 'produit.php?id=') === 2, 'guard: reponse honnete inchangee, un seul appel', "appels={$honnete->appels}");
+
+// Production 06/10: for a Vigo LAN15 the model searched id_voiture 333 and
+// 76 (the Coaster) without resolve_vehicle. Unknown ids are refused;
+// resolve_vehicle in the same turn makes its matches usable.
+$vehiculesDevines = new FauxModele([
+    function ($d) {
+        $refus = $d('search_products', ['query' => 'كيلاس', 'id_voiture' => 76]);
+        $d('resolve_vehicle', ['free_text' => 'vigo lan15']);
+        $ok = $d('search_products', ['query' => 'كيلاس', 'id_voiture' => 95]);
+        return ['text' => (isset($refus['error']) ? 'REFUS' : 'ACCEPTE') . ' / ' . count($ok), 'tools_called' => []];
+    },
+]);
+$r = ai_converse_verifie($vehiculesDevines, '', [], 'Lan15', [], ai_build_tool_dispatcher($pdo), []);
+$affiche(strpos($r['text'], 'REFUS') === 0 && (int)substr($r['text'], 8) > 0, 'guard: id_voiture devine refuse, accepte apres resolve_vehicle', $r['text']);
+$connu = new FauxModele([fn($d) => ['text' => count($d('search_products', ['query' => 'culasse', 'id_voiture' => 95])) . ' resultats', 'tools_called' => []]]);
+$r = ai_converse_verifie($connu, '', [], 'culasse', [], ai_build_tool_dispatcher($pdo), [95]);
+$affiche((int)$r['text'] > 0, 'guard: vehicule deja utilise dans la session accepte', $r['text']);
+
+// Car names: "XLI2024" without space, Arabic car names read by sound, fuel
+// words never taken for a car (production 04/10 and 06/10).
+foreach ([['corolla Xli2024', [182], true], ['هيلكس', [92, 94], false], ['كيلاس فيقو ايسونس', [59, 60, 95], false]] as [$texte, $attendus, $unique]) {
+    $res = ai_resolve_vehicle($pdo, $texte);
+    $ids = array_map(fn($m) => (int)$m['id_voiture'], $res['matches']);
+    $ok2 = $res['unique'] === $unique && ($unique ? $ids[0] === $attendus[0] : (function ($a, $b) { sort($a); sort($b); return $a === $b; })($ids, $attendus));
+    $affiche($ok2, "vehicle \"$texte\"", 'unique=' . json_encode($res['unique']) . ' ids=' . json_encode($ids));
+}
 
 // A close-reference suggestion shows its reference even if the model drops
 // it (store owner's 0C380-16400, 07/10).

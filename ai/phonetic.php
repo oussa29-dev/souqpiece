@@ -128,6 +128,36 @@ function ai_vocabulaire_catalogue(PDO $pdo): array
     return $vocab;
 }
 
+// Car brand and model words (HILUX, COROLLA, VIGO, PATROL...), same format
+// as the catalog vocabulary, so a car named in Arabic letters is read by
+// sound too: هيلكس was not recognised (production 04/10) and the model then
+// invented Vigo codes for a Hilux. Words of a single letter or digit-only
+// codes are ignored.
+function ai_vocabulaire_vehicules(PDO $pdo): array
+{
+    static $vocab = null;
+    if ($vocab !== null) {
+        return $vocab;
+    }
+    $mots = [];
+    foreach ($pdo->query('SELECT CONCAT(m.libelle, " ", v.modele) FROM voiture v JOIN marque m ON m.id_marque = v.id_marque')->fetchAll(PDO::FETCH_COLUMN) as $nom) {
+        foreach (preg_split('/[^A-Za-z]+/', (string)$nom) as $mot) {
+            // Fuel / gearbox words describe a version, not a car: "ايسونس"
+            // (essence) matched ESSANCE in "NISSAN PICKUP ESSANCE KA24DE" and
+            // a Vigo petrol request resolved to that Nissan.
+            if (strlen($mot) >= 3 && preg_match('/[AEIOUYaeiouy]/', $mot)
+                && !in_array(strtoupper($mot), ['ESSENCE', 'ESSANCE', 'ESS', 'DIESEL', 'GAZOIL', 'GASOIL', 'AUTO', 'MANUEL', 'MANUELLE'], true)) {
+                $mots[strtoupper($mot)] = ($mots[strtoupper($mot)] ?? 0) + 10;
+            }
+        }
+    }
+    $vocab = [];
+    foreach ($mots as $mot => $n) {
+        $vocab[$mot] = ai_cles_latin($mot) + ['n' => $n];
+    }
+    return $vocab;
+}
+
 // Number of differing positions of two equal-length strings.
 function ai_ecarts_meme_longueur(string $a, string $b): int
 {
@@ -151,8 +181,11 @@ function ai_ecarts_meme_longueur(string $a, string $b): int
 //   times in the catalog (SB is both SOUPAPE and SABO); under 2 nothing;
 // - among candidates, only the closest vowel pattern is kept (فيلتر is
 //   FILTER, not FLOTTEUR).
-function ai_correspondances_phonetiques(PDO $pdo, string $motArabe): array
+// $vocab: another word list in the format of ai_vocabulaire_catalogue()
+// (ai_vocabulaire_vehicules() for car names); the catalog by default.
+function ai_correspondances_phonetiques(PDO $pdo, string $motArabe, ?array $vocab = null): array
 {
+    $vocab = $vocab ?? ai_vocabulaire_catalogue($pdo);
     $mot = trim($motArabe);
     if (in_array($mot, ai_mots_courants_arabes(), true)) {
         return [];
@@ -172,7 +205,7 @@ function ai_correspondances_phonetiques(PDO $pdo, string $motArabe): array
             continue;
         }
         $tolerance = $n <= 3 ? 0 : ($n <= 5 ? 1 : 2);
-        foreach (ai_vocabulaire_catalogue($pdo) as $motCatalogue => $clesLatin) {
+        foreach ($vocab as $motCatalogue => $clesLatin) {
             if ($n === 2 && $clesLatin['n'] < 10) {
                 continue;
             }
@@ -217,7 +250,6 @@ function ai_correspondances_phonetiques(PDO $pdo, string $motArabe): array
     //    a rare typo of the catalog (ROULMENT) while the common word
     //    (ROULEMENT, 595 products) is one vowel away - most used first.
     $minVoyelles = min(array_column($distances, 1));
-    $vocab = ai_vocabulaire_catalogue($pdo);
     $retenus = array_keys(array_filter($distances, fn($d) => $d[1] <= $minVoyelles + 1));
     usort($retenus, fn($a, $b) => $vocab[$b]['n'] <=> $vocab[$a]['n']);
     return array_slice(array_map('strtolower', $retenus), 0, 3);

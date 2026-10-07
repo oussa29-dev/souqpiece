@@ -57,7 +57,7 @@ function ai_ajouter_refs_proches(string $texte, array $refs): string
             }
         }
         return $ligne;
-    }, preg_split('/\R/', $texte)));
+    }, preg_split('/\R/u', $texte)));
 }
 
 // Product ids linked in a reply ("produit.php?id=123...").
@@ -67,15 +67,32 @@ function ai_ids_produits_reponse(string $texte): array
     return array_map('intval', $m[1]);
 }
 
-// Same contract as LlmProvider::converse(), plus the guarantee. One retry
+// Same contract as LlmProvider::converse(), plus the guarantees. One retry
 // with an explicit instruction when the reply links a product no tool
 // returned in this turn; if the retry still does, those lines are removed.
-function ai_converse_verifie(LlmProvider $provider, string $systemPrompt, array $history, string $message, array $schemas, callable $dispatcher): array
+//
+// $vehiculesConnus: id_voiture already used by earlier turns of this
+// session. A tool call may only filter on a vehicle resolve_vehicle returned
+// in this turn, or one of those - production 06/10: for a Vigo LAN15 the
+// model skipped resolve_vehicle and searched id 333 (no such vehicle) then
+// 76 (the Coaster, copied from a prompt example), showing Coaster culasses.
+function ai_converse_verifie(LlmProvider $provider, string $systemPrompt, array $history, string $message, array $schemas, callable $dispatcher, array $vehiculesConnus = []): array
 {
     $ids = [];
     $refsProches = [];
-    $dispatcherSuivi = function (string $name, array $args) use ($dispatcher, &$ids, &$refsProches) {
+    $vehiculesAutorises = array_fill_keys(array_map('intval', $vehiculesConnus), true);
+    $dispatcherSuivi = function (string $name, array $args) use ($dispatcher, &$ids, &$refsProches, &$vehiculesAutorises) {
+        $idVoiture = (int)($args['id_voiture'] ?? 0);
+        if ($name !== 'resolve_vehicle' && $idVoiture > 0 && !isset($vehiculesAutorises[$idVoiture])) {
+            error_log("ai: id_voiture $idVoiture not returned by resolve_vehicle, call refused");
+            return ['error' => "id_voiture $idVoiture was not returned by resolve_vehicle for this customer. Call resolve_vehicle with the customer's vehicle words first, then use an id_voiture from its matches. Never guess an id_voiture."];
+        }
         $resultat = $dispatcher($name, $args);
+        if ($name === 'resolve_vehicle') {
+            foreach ($resultat['matches'] ?? [] as $match) {
+                $vehiculesAutorises[(int)$match['id_voiture']] = true;
+            }
+        }
         ai_ids_produits_resultat($resultat, $ids);
         ai_refs_proches_resultat($resultat, $refsProches);
         return $resultat;
@@ -95,7 +112,10 @@ function ai_converse_verifie(LlmProvider $provider, string $systemPrompt, array 
     $retry['tools_called'] = array_merge($result['tools_called'] ?? [], $retry['tools_called'] ?? []);
 
     $valides = array_keys($ids);
-    $lignes = preg_split('/\R/', $retry['text']);
+    // /u is required: without it \R also matches the byte 0x85, the second
+    // byte of the Arabic letter م - production 06/10, "متوفر" was stored as
+    // "?\nتوفر" after a retry.
+    $lignes = preg_split('/\R/u', $retry['text']);
     $gardees = array_filter($lignes, function ($ligne) use ($valides) {
         foreach (ai_ids_produits_reponse($ligne) as $id) {
             if (!in_array($id, $valides, true)) {

@@ -45,6 +45,10 @@ $sessions = [
     'F' => ['#30 reference sans prix', ['13508-30011'], 'says the part is listed (PIGNON INTERMEDIAIRE) and to contact the store for the price - not "not found"'],
     'G' => ['#18 vente en gros', ['سلعة جملة'], 'Arabic; no invented wholesale policy; gives the store phone'],
     'H' => ['#34-39 demarreur Yaris 2', ['Dem yaris', 'Ncp90'], 'ends with DEMARREUR products for the Yaris 2 NCP90, each line starting with the product name'],
+    'O' => ['prod 06/10 culasse Vigo LAN15', ['كيلاس فيقو ايسونس', 'فيقو 2wd', 'Lan15'], 'CULASSE for the Vigo 2WD LAN15 (95) - never the Coaster (76), no broken Arabic letters'],
+    'P' => ['prod 04/10 goujon Hilux', ['قوجون هيلكس', 'Ln145'], 'asks which Hilux (LN145 / LN166, no invented Vigo codes), then GOUGEN for the Hilux 2WD LN145 (92)'],
+    'Q' => ['prod 06/10 demarreur Corolla XLI', ['ديمارور كورلا', 'Xli2024'], '"Xli2024" resolves to the COROLLA XLI 2024 (182) and the demarreur is searched - no second "which Corolla?"'],
+    'R' => ['prod 03/10 axe etrier pas X-Trail', ['بستن ياريس', 'Nsp130', 'اكس اتري'], 'PISTON for the NSP130 (42), then AXE ETRIER for the same Yaris - never the Nissan X-Trail'],
     'M' => ['prod 07/10 reference proche', ['0C380-16400'], 'not found exactly; suggests 16400-0C381 RADIATEUR REVO as a close reference to confirm, never as the same part'],
     'N' => ['reference introuvable', ['98765-43210'], 'nothing found; asks the customer for the part name and the vehicle instead of stopping'],
     'L' => ['prod 04/10 axe etrier en darija', ['اكس تري فيقو', 'Kun15', 'تندار امرتيسار فيقو'], 'AXE ETRIER for the Vigo 2WD KUN15 (60), then TENDEUR AMORTISSEUR CHAIN for the Vigo'],
@@ -71,7 +75,7 @@ foreach ($sessions as $cle => [$label, $messages, $attendu]) {
         $avant = $provider->usage ?? ['input' => 0, 'output' => 0, 'calls' => 0];
         $t0 = microtime(true);
         try {
-            $result = ai_converse_verifie($provider, $systemPrompt, $history, $message, $schemas, $dispatcher);
+            $result = ai_converse_verifie($provider, $systemPrompt, $history, $message, $schemas, $dispatcher, ai_vehicules_connus($rows));
         } catch (Throwable $e) {
             echo "\n> $message\n!! ERREUR provider: " . $e->getMessage() . "\n";
             $bilan['erreurs']++;
