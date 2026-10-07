@@ -26,7 +26,7 @@ function ai_tool_schemas(): array
         ],
         [
             'name' => 'lookup_by_reference',
-            'description' => 'Look up an exact OEM/manufacturer reference number. Returns all matching products grouped by brand (marquepiece), since the same reference number is often sold under several different brands at different prices. Dashes and spaces are optional. A row with prix_non_disponible=true exists in the catalog but has no online price and no link: tell the customer the part is listed and to contact the store for the price - never say it was not found.',
+            'description' => 'Look up an exact OEM/manufacturer reference number. Returns all matching products grouped by brand (marquepiece), since the same reference number is often sold under several different brands at different prices. Dashes, spaces and the order of the parts are optional. When nothing matches exactly, rows that differ by one character come back with reference_proche=true: offer them as a close reference to confirm, never as the exact part. A row with prix_non_disponible=true exists in the catalog but has no online price and no link: tell the customer the part is listed and to contact the store for the price - never say it was not found.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [

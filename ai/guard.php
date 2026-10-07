@@ -20,6 +20,46 @@ function ai_ids_produits_resultat($resultat, array &$ids): void
     }
 }
 
+// id_produit => reference, for every "close reference" row (reference_proche)
+// in a tool result.
+function ai_refs_proches_resultat($resultat, array &$refs): void
+{
+    if (!is_array($resultat)) {
+        return;
+    }
+    if (!empty($resultat['reference_proche']) && isset($resultat['id_produit'], $resultat['reference']) && !isset($refs[(int)$resultat['id_produit']])) {
+        $refs[(int)$resultat['id_produit']] = trim((string)$resultat['reference']);
+    }
+    foreach ($resultat as $valeur) {
+        if (is_array($valeur)) {
+            ai_refs_proches_resultat($valeur, $refs);
+        }
+    }
+}
+
+// A close-reference suggestion is only useful if the customer can compare
+// its reference with theirs, but the model drops it from the line even when
+// told to keep it (store owner's 0C380-16400 case, 07/10): appended in code.
+function ai_ajouter_refs_proches(string $texte, array $refs): string
+{
+    if (!$refs) {
+        return $texte;
+    }
+    return implode("\n", array_map(function ($ligne) use ($refs) {
+        foreach (ai_ids_produits_reponse($ligne) as $id) {
+            // Letters and digits only: "16400-0C180" already on the line
+            // covers the stored "16400-0C180/-".
+            $compacter = fn($t) => preg_replace('/[^A-Z0-9]/', '', strtoupper($t));
+            if (isset($refs[$id]) && strpos($compacter($ligne), $compacter($refs[$id])) === false) {
+                $ajout = ' (réf. ' . $refs[$id] . ')';
+                $pos = strpos($ligne, ' - [');
+                return $pos !== false ? substr_replace($ligne, $ajout, $pos, 0) : $ligne . $ajout;
+            }
+        }
+        return $ligne;
+    }, preg_split('/\R/', $texte)));
+}
+
 // Product ids linked in a reply ("produit.php?id=123...").
 function ai_ids_produits_reponse(string $texte): array
 {
@@ -33,15 +73,18 @@ function ai_ids_produits_reponse(string $texte): array
 function ai_converse_verifie(LlmProvider $provider, string $systemPrompt, array $history, string $message, array $schemas, callable $dispatcher): array
 {
     $ids = [];
-    $dispatcherSuivi = function (string $name, array $args) use ($dispatcher, &$ids) {
+    $refsProches = [];
+    $dispatcherSuivi = function (string $name, array $args) use ($dispatcher, &$ids, &$refsProches) {
         $resultat = $dispatcher($name, $args);
         ai_ids_produits_resultat($resultat, $ids);
+        ai_refs_proches_resultat($resultat, $refsProches);
         return $resultat;
     };
 
     $result = $provider->converse($systemPrompt, $history, $message, $schemas, $dispatcherSuivi);
     $inventes = array_diff(ai_ids_produits_reponse($result['text']), array_keys($ids));
     if ($inventes === []) {
+        $result['text'] = ai_ajouter_refs_proches($result['text'], $refsProches);
         return $result;
     }
 
@@ -68,5 +111,6 @@ function ai_converse_verifie(LlmProvider $provider, string $systemPrompt, array 
     if ($retry['text'] === '') {
         $retry['text'] = "عذراً، لم أتمكن من التحقق من هذه القطعة في الكتالوج. أعد صياغة الطلب أو اتصل بالمحل. / Désolé, je n'ai pas pu vérifier cette pièce dans le catalogue. Reformulez ou contactez le magasin.";
     }
+    $retry['text'] = ai_ajouter_refs_proches($retry['text'], $refsProches);
     return $retry;
 }

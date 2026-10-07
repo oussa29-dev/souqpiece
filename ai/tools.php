@@ -325,6 +325,59 @@ function ai_lookup_by_reference(PDO $pdo, string $reference): array
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    // Store owner, 07/10: "0C380-16400" was answered "not found" while the
+    // catalog has 16400-0C381-AT / -MT (radiator Revo). The halves were
+    // typed in reverse order, and one character differs.
+    $segments = array_values(array_filter(
+        preg_split('/[^A-Z0-9]+/', mb_strtoupper($reference)),
+        fn($s) => strlen($s) >= 2
+    ));
+    $colonne = "REGEXP_REPLACE(UPPER(r.reference), '[^A-Z0-9]', '')";
+
+    // 1. Every part present, in any order.
+    if (empty($rows) && count($segments) >= 2) {
+        $stmt = $pdo->prepare($select . ' WHERE ' . implode(' AND ', array_fill(0, count($segments), "$colonne LIKE ?")) . $order);
+        $stmt->execute(array_map(fn($s) => "%$s%", $segments));
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    // 2. One character off in one part (any order for the others), only for
+    // references long enough to be distinctive. Returned flagged - a close
+    // reference is a suggestion to confirm, never presented as the same part.
+    if (empty($rows) && strlen($compacte) >= 8) {
+        $alternatives = [];
+        $params = [];
+        foreach ($segments as $k => $segment) {
+            if (strlen($segment) < 4) {
+                continue;
+            }
+            $variantes = [];
+            for ($i = 0; $i < strlen($segment); $i++) {
+                $variantes[] = "$colonne LIKE ?";
+                $params[] = '%' . substr_replace($segment, '_', $i, 1) . '%';
+            }
+            $conditions = ['(' . implode(' OR ', $variantes) . ')'];
+            foreach ($segments as $j => $autre) {
+                if ($j !== $k) {
+                    $conditions[] = "$colonne LIKE ?";
+                    $params[] = "%$autre%";
+                }
+            }
+            $alternatives[] = '(' . implode(' AND ', $conditions) . ')';
+        }
+        if ($alternatives) {
+            $stmt = $pdo->prepare($select . ' WHERE ' . implode(' OR ', $alternatives) . $order);
+            $stmt->execute($params);
+            // The reference goes into the name too: the model always copies
+            // the name, but left out a separate reference field even when
+            // told to show it - and the customer needs it to compare.
+            $rows = array_map(fn($r) => array_merge($r, [
+                'reference_proche' => true,
+                'libelle' => trim($r['libelle']) . ' (réf. ' . trim($r['reference']) . ')',
+            ]), $stmt->fetchAll(PDO::FETCH_ASSOC));
+        }
+    }
+
     // Group by marquepiece so the caller can present alternatives clearly
     // instead of picking one silently (43.6% of references are ambiguous).
     $grouped = [];

@@ -116,7 +116,10 @@ foreach ($classements as [$label, $q, $idVoiture, $motif]) {
 foreach ($references as [$label, $ref, $trouve, $prixDispo]) {
     $groupes = ai_lookup_by_reference($pdo, $ref);
     $lignes = array_merge([], ...array_values($groupes));
-    $passe = (count($lignes) > 0) === $trouve;
+    // "Not found" means no EXACT match: close suggestions (reference_proche)
+    // are allowed, as long as they are flagged.
+    $exactes = array_filter($lignes, fn($l) => empty($l['reference_proche']));
+    $passe = (count($exactes) > 0) === $trouve;
     if ($passe && $trouve && $prixDispo !== null) {
         $avecPrix = array_filter($lignes, fn($l) => empty($l['prix_non_disponible']));
         $passe = $prixDispo ? count($avecPrix) > 0 : count($avecPrix) === 0;
@@ -141,6 +144,14 @@ foreach ($vehicules as [$label, $texte, $unique, $attendus]) {
         $passe = $r['unique'] === false && ($attendus === null || $trie === $attendus);
     }
     $affiche($passe, "vehicle \"$texte\" ($label)", 'unique=' . json_encode($r['unique']) . ' ids=' . json_encode($ids));
+}
+
+// Store owner 07/10: reversed halves and one character off.
+foreach ([['0C381-16400', '/0C381/', false], ['0C380-16400', '/0C381/', true], ['16400-0C380', '/0C381/', true]] as [$ref, $motif, $proche]) {
+    $lignes = array_merge([], ...array_values(ai_lookup_by_reference($pdo, $ref)));
+    $trouve = array_filter($lignes, fn($l) => preg_match($motif, $l['reference']));
+    $flagsOk = $trouve && array_reduce($trouve, fn($c, $l) => $c && (!empty($l['reference_proche']) === $proche), true);
+    $affiche((bool)$flagsOk, "reference \"$ref\" -> 16400-0C381" . ($proche ? ' (proche)' : ' (exacte)'), count($lignes) . ' ligne(s): ' . implode(' ; ', array_map(fn($l) => $l['reference'] . (!empty($l['reference_proche']) ? '*' : ''), $lignes)));
 }
 
 // Dispatcher: GPT-5.x models send every optional parameter, zero for "not
@@ -254,6 +265,14 @@ $honnete = new FauxModele([
 ]);
 $r = ai_converse_verifie($honnete, '', [], 'Plaquet revo', [], ai_build_tool_dispatcher($pdo));
 $affiche($honnete->appels === 1 && substr_count($r['text'], 'produit.php?id=') === 2, 'guard: reponse honnete inchangee, un seul appel', "appels={$honnete->appels}");
+
+// A close-reference suggestion shows its reference even if the model drops
+// it (store owner's 0C380-16400, 07/10).
+$refsProches = [];
+ai_refs_proches_resultat(ai_lookup_by_reference($pdo, '0C380-16400'), $refsProches);
+$idRevo = array_search('16400-0C381-AT', $refsProches, true);
+$texte = ai_ajouter_refs_proches("RADIATEUR REVO ESS AUTO - GECER - 21360 DA - [voir le produit](produit.php?id=$idRevo)", $refsProches);
+$affiche($idRevo !== false && strpos($texte, '(réf. 16400-0C381-AT)') !== false, 'guard: reference ajoutee aux suggestions proches', $texte);
 
 $total = $ok + count($echecs);
 foreach ($echecs as $e) {
