@@ -168,7 +168,7 @@
                 <div class="product-card <?= $produit['stock'] == 0 ? 'out-of-stock' : '' ?>">
                     <a href="produit.php?id=<?=$produit['id_produit']?>&id_voiture=<?=$id_voiture?>" class="product-link">
                         <?php if($produit['stock'] == 0): ?>
-                        <div class="stock-badge">Épuisé</div>
+                        <div class="stock-badge">Non disponible</div>
                         <?php endif; ?>
                         
                         <div class="product-image-container">

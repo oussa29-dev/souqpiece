@@ -242,8 +242,20 @@ if (empty($__ai_config['enabled']) && empty($_SESSION['ai_preview'])) {
         })
         .catch(function () {});
 
+    // On a phone the panel covers nearly the whole page: reopening it on the
+    // product page hid the photos the customer had just opened (store owner,
+    // 08/10). There, tapping a product closes the chat before leaving and the
+    // chat never reopens by itself - the conversation stays one tap away on
+    // the chat button. Larger screens keep the chat open across pages.
+    var petitEcran = window.matchMedia('(max-width: 768px)');
+    messages.addEventListener('click', function (e) {
+        if (petitEcran.matches && e.target.closest('a')) {
+            memoriserOuverture(false);
+        }
+    });
+
     try {
-        if (sessionStorage.getItem('ai_chat_open') === '1') {
+        if (!petitEcran.matches && sessionStorage.getItem('ai_chat_open') === '1') {
             setOpened(true);
         }
     } catch (e) {}

@@ -142,6 +142,7 @@
             WHERE pv.id_voiture = :id_voiture
                 AND p.id_sous_categorie = :id_sous_categorie
                 AND p.id_produit != :id_produit
+            ORDER BY p.stock DESC, p.id_produit ASC
             LIMIT 10
         ');
         $sqlSimilaires->execute([
@@ -165,6 +166,7 @@
             WHERE pv.id_voiture = :id_voiture
                 AND p.id_sous_categorie = :id_sous_categorie
                 AND p.id_produit != :id_produit
+            ORDER BY p.stock DESC, p.id_produit ASC
             LIMIT 10
         ');
         $sqlSimilaires->execute([
@@ -198,7 +200,7 @@
                         <div class="product-card <?= $produitsSimilaire['stock'] == 0 ? 'out-of-stock' : '' ?>">
                             <a href="produit.php?id=<?=$produitsSimilaire['id_produit']?>&id_voiture=<?=$id_voiture?>" class="product-link">
                                 <?php if($produitsSimilaire['stock'] == 0): ?>
-                                <div class="stock-badge">Épuisé</div>
+                                <div class="stock-badge">Non disponible</div>
                                 <?php endif; ?>
                                 
                                 <div class="product-image-container">

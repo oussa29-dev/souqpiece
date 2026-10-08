@@ -2521,3 +2521,5 @@ body{
     background: var(--color);
     color: #fff;
 }
+/* "Non disponible" (longer than the former "Epuise") stays on one line on narrow cards */
+.stock-badge { white-space: nowrap; }
