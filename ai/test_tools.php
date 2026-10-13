@@ -42,10 +42,27 @@ check('no zero-price rows leak through', !array_filter($r, fn($x) => (int)$x['pr
 $r = ai_search_products($pdo, '48258-42020'); // real logged customer search (a reference number)
 check('real logged search term resolves to something or empty cleanly', is_array($r));
 
+function ai_test_ligne_du_vehicule(PDO $pdo, array $row, int $idVoiture): bool
+{
+    if ((int)$row['voiture_id'] === $idVoiture) {
+        return true;
+    }
+    if (($row['lien_vehicule'] ?? '') !== 'nom_seulement') {
+        return false;
+    }
+    foreach (ai_mots_distinctifs_vehicule($pdo, $idVoiture) as $mot) {
+        if (stripos($row['libelle'], $mot) !== false) {
+            return true;
+        }
+    }
+    return false;
+}
+
 $r = ai_search_products($pdo, 'CROISILLON CARDON', 59); // filtered to a specific vehicle
 check('id_voiture filter narrows results', count($r) <= 20);
 foreach ($r as $row) {
-    check('  every row matches requested vehicle', (int)$row['voiture_id'] === 59, $row);
+    // Linked to the vehicle, or unlinked but naming it (lien_vehicule).
+    check('  every row matches requested vehicle (linked, or named in its libelle)', ai_test_ligne_du_vehicule($pdo, $row, 59), $row);
 }
 
 // Regression: a broad query with more matches than the limit must return
@@ -73,7 +90,7 @@ check('broad search + vehicle filter does not silently drop valid results past a
     count(array_intersect([5561, 9957, 73319], $ids)) === 3, $ids);
 foreach ($r as $row) {
     check('  every row in a large result set is still a real DB record matching the vehicle filter',
-        (int)$row['voiture_id'] === 30 && isset($row['prix'], $row['marquepiece']) && (int)$row['prix'] > 0, $row);
+        ai_test_ligne_du_vehicule($pdo, $row, 30) && isset($row['prix'], $row['marquepiece']) && (int)$row['prix'] > 0, $row);
 }
 
 $r = ai_search_products($pdo, 'PLAQUETTE DE FREIN', null, null, 20, null, 3000);

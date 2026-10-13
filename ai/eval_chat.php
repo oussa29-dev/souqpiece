@@ -45,6 +45,7 @@ $sessions = [
     'F' => ['#30 reference sans prix', ['13508-30011'], 'says the part is listed (PIGNON INTERMEDIAIRE) and to contact the store for the price - not "not found"'],
     'G' => ['#18 vente en gros', ['سلعة جملة'], 'Arabic; no invented wholesale policy; gives the store phone'],
     'H' => ['#34-39 demarreur Yaris 2', ['Dem yaris', 'Ncp90'], 'ends with DEMARREUR products for the Yaris 2 NCP90, each line starting with the product name'],
+    'S' => ['prod 13/10 arbracame HZJ80 non lie', ['arbracame hzj80'], 'lists ARBRACAME HZJ80/105/75 1HZ (in stock, linked to no vehicle, found by its name) - not "nothing found"'],
     'O' => ['prod 06/10 culasse Vigo LAN15', ['كيلاس فيقو ايسونس', 'فيقو 2wd', 'Lan15'], 'CULASSE for the Vigo 2WD LAN15 (95) - never the Coaster (76), no broken Arabic letters'],
     'P' => ['prod 04/10 goujon Hilux', ['قوجون هيلكس', 'Ln145'], 'asks which Hilux (LN145 / LN166, no invented Vigo codes), then GOUGEN for the Hilux 2WD LN145 (92)'],
     'Q' => ['prod 06/10 demarreur Corolla XLI', ['ديمارور كورلا', 'Xli2024'], '"Xli2024" resolves to the COROLLA XLI 2024 (182) and the demarreur is searched - no second "which Corolla?"'],

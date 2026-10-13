@@ -292,6 +292,17 @@ foreach ([['corolla Xli2024', [182], true], ['هيلكس', [92, 94], false], ['�
     $affiche($ok2, "vehicle \"$texte\"", 'unique=' . json_encode($res['unique']) . ' ids=' . json_encode($ids));
 }
 
+// Store owner 13/10: unlinked products naming the vehicle must be found
+// once the vehicle is chosen (site search found them, the assistant not);
+// a part for the other drive must not.
+foreach ([['arbracame', 89, '/HZJ80/'], ['arbracame', 76, '/COASTER/']] as [$q, $v, $motif]) {
+    $rows = ai_search_products($pdo, $q, $v, null, 8);
+    $trouve = array_filter($rows, fn($r) => preg_match($motif, $r['libelle']) && ($r['lien_vehicule'] ?? '') === 'nom_seulement');
+    $affiche((bool)$trouve, "produit non lie trouve par son nom: \"$q\" v$v", implode(' ; ', array_map(fn($r) => trim($r['libelle']), $rows)));
+}
+$rows = ai_search_products($pdo, 'croisillon', 60, null, 20);
+$affiche(!array_filter($rows, fn($r) => isset($r['lien_vehicule']) && stripos($r['libelle'], '4WD') !== false), 'piece non liee "4WD" exclue pour un Vigo 2WD', implode(' ; ', array_map(fn($r) => trim($r['libelle']), $rows)));
+
 // A close-reference suggestion shows its reference even if the model drops
 // it (store owner's 0C380-16400, 07/10).
 $refsProches = [];

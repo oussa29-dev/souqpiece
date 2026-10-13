@@ -220,8 +220,33 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     $conditions[] = 'produit.prix > 0';
 
     if ($id_voiture !== null) {
-        $conditions[] = 'pvd.id_voiture = ?';
-        $params[] = $id_voiture;
+        // Linked to this vehicle - or linked to no vehicle at all but naming
+        // it: store owner, 13/10, "ARBRACAME HZJ80/105/75 1HZ" (in stock, no
+        // pvd row yet) was found by the site search but never by the
+        // assistant once the Land Cruiser HZJ80 was chosen. Only the
+        // vehicle's distinctive words count (HZJ80, COASTER, NCP90 - not
+        // CRUISER or YARIS, shared by 6 vehicles), so an unlinked part named
+        // for another model does not slip in.
+        $mots = ai_mots_distinctifs_vehicule($pdo, $id_voiture);
+        if ($mots) {
+            // A part naming the other drive is for the other version
+            // ("CROISILLON VIGO 4WD" must not be offered for a Vigo 2WD).
+            $exclusion = '';
+            $modele = strtoupper((string)$pdo->query('SELECT modele FROM voiture WHERE id_voiture = ' . (int)$id_voiture)->fetchColumn());
+            if (strpos($modele, '2WD') !== false || strpos($modele, '4W2') !== false) {
+                $exclusion = " AND produit.libelle NOT LIKE '%4WD%' AND produit.libelle NOT LIKE '%4W4%'";
+            } elseif (strpos($modele, '4WD') !== false || strpos($modele, '4W4') !== false) {
+                $exclusion = " AND produit.libelle NOT LIKE '%2WD%' AND produit.libelle NOT LIKE '%4W2%'";
+            }
+            $conditions[] = '(pvd.id_voiture = ? OR (pvd.id_produit IS NULL AND (' . implode(' OR ', array_fill(0, count($mots), 'produit.libelle LIKE ?')) . ')' . $exclusion . '))';
+            $params[] = $id_voiture;
+            foreach ($mots as $mot) {
+                $params[] = '%' . ai_escape_like($mot) . '%';
+            }
+        } else {
+            $conditions[] = 'pvd.id_voiture = ?';
+            $params[] = $id_voiture;
+        }
     }
     if ($id_sous_categorie !== null) {
         $conditions[] = 'produit.id_sous_categorie = ?';
@@ -261,9 +286,11 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     }
     $relevance = 'CASE WHEN ' . implode(' OR ', $debut) . ' THEN 0 WHEN ' . implode(' OR ', $contient) . ' THEN 1 ELSE 2 END';
 
+    // With a vehicle, parts linked to it come before parts only naming it.
+    $lienAvant = $id_voiture !== null ? '(pvd.id_voiture IS NULL), ' : '';
     $orderBy = ($min_price !== null || $max_price !== null)
-        ? 'produit.prix ASC, produit.stock DESC, ' . $relevance . ', produit.id_produit ASC'
-        : 'produit.stock DESC, ' . $relevance . ', produit.id_produit ASC';
+        ? 'produit.prix ASC, produit.stock DESC, ' . $lienAvant . $relevance . ', produit.id_produit ASC'
+        : 'produit.stock DESC, ' . $lienAvant . $relevance . ', produit.id_produit ASC';
 
     $sql = '
         SELECT
@@ -288,8 +315,39 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     foreach ($rows as &$row) {
         $row['url'] = 'produit.php?id=' . $row['id_produit']
             . (!empty($row['voiture_id']) ? '&id_voiture=' . $row['voiture_id'] : '');
+        if ($id_voiture !== null && empty($row['voiture_id'])) {
+            // Found by its name only: the catalog does not link it to the
+            // vehicle yet.
+            $row['lien_vehicule'] = 'nom_seulement';
+        }
     }
     return $rows;
+}
+
+// Words of a vehicle's model name distinctive enough to find unlinked parts
+// by name: 3+ characters, not a drive/engine/fuel word, and used by at most
+// 3 vehicle names (YARIS and CRUISER are in 6, so they would let parts for
+// other models in).
+function ai_mots_distinctifs_vehicule(PDO $pdo, int $id_voiture): array
+{
+    static $modeles = null;
+    static $frequence = [];
+    if ($modeles === null) {
+        $modeles = $pdo->query('SELECT id_voiture, modele FROM voiture')->fetchAll(PDO::FETCH_KEY_PAIR);
+        foreach ($modeles as $modele) {
+            foreach (array_unique(preg_split('/[^A-Z0-9]+/', strtoupper((string)$modele))) as $mot) {
+                $frequence[$mot] = ($frequence[$mot] ?? 0) + 1;
+            }
+        }
+    }
+    $generiques = ['2WD', '4WD', '4W2', '4W4', 'D4D', 'ESS', 'ESSENCE', 'ESSANCE', 'DIESEL', 'AUTO', 'PLUS', 'NEW', 'SPORT'];
+    $mots = [];
+    foreach (array_unique(preg_split('/[^A-Z0-9]+/', strtoupper((string)($modeles[$id_voiture] ?? '')))) as $mot) {
+        if (strlen($mot) >= 3 && !in_array($mot, $generiques, true) && ($frequence[$mot] ?? 0) <= 3) {
+            $mots[] = $mot;
+        }
+    }
+    return $mots;
 }
 
 function ai_lookup_by_reference(PDO $pdo, string $reference): array
