@@ -1,0 +1,173 @@
+<?php
+// WhatsApp channel of the assistant (Meta WhatsApp Cloud API). Phase 1:
+// anyone writing to the shop's number gets the same assistant as the site -
+// availability, retail price, product link. Endpoint: ai/whatsapp.php.
+// Kept separate from the endpoint so the logic can be tested without Meta
+// (the message sender is a parameter).
+
+require_once __DIR__ . '/conversation.php';
+
+const WA_NOTICE = "🤖 مساعد آلي لـ SOUQPIECE BA - Assistant automatique.\n";
+const WA_TEXTE_SEULEMENT = 'يرجى كتابة طلبك نصاً (اسم القطعة والسيارة). / Merci d\'écrire votre demande en texte (pièce et véhicule).';
+const WA_LIMITE = 'لقد وصلت للحد الأقصى من الرسائل اليوم، تواصل مع المحل. / Limite quotidienne de messages atteinte, contactez le magasin.';
+
+// Meta signs every webhook with the app secret (header
+// X-Hub-Signature-256: sha256=<hmac>). Without a configured secret the
+// check is skipped (local tests only).
+function wa_signature_valide(string $corps, string $entete, string $secret): bool
+{
+    if ($secret === '') {
+        return true;
+    }
+    $attendu = 'sha256=' . hash_hmac('sha256', $corps, $secret);
+    return hash_equals($attendu, $entete);
+}
+
+// Incoming customer messages of a webhook payload: [['wamid', 'de', 'type',
+// 'texte']]. Delivery/read statuses (the shop's own messages) are ignored.
+function wa_messages_recus(array $payload): array
+{
+    $messages = [];
+    foreach ($payload['entry'] ?? [] as $entree) {
+        foreach ($entree['changes'] ?? [] as $changement) {
+            if (($changement['field'] ?? '') !== 'messages') {
+                continue;
+            }
+            foreach ($changement['value']['messages'] ?? [] as $m) {
+                $messages[] = [
+                    'wamid' => (string)($m['id'] ?? ''),
+                    'de' => preg_replace('/\D/', '', (string)($m['from'] ?? '')),
+                    'type' => (string)($m['type'] ?? ''),
+                    'texte' => trim((string)($m['text']['body'] ?? '')),
+                ];
+            }
+        }
+    }
+    return array_values(array_filter($messages, fn($m) => $m['wamid'] !== '' && $m['de'] !== ''));
+}
+
+// WhatsApp shows plain text only: the widget's "[label](produit.php?...)"
+// links become full addresses on the shop's domain.
+function wa_formater_reponse(string $texte, string $site): string
+{
+    $site = rtrim($site, '/');
+    $texte = preg_replace_callback('/\[([^\]]+)\]\((produit\.php\?[^)\s]+)\)/u', fn($m) => $site . '/' . $m[2], $texte);
+    return trim($texte);
+}
+
+// WhatsApp caps a text message at 4096 characters: split on line breaks.
+function wa_decouper(string $texte, int $max = 4000): array
+{
+    if (mb_strlen($texte) <= $max) {
+        return [$texte];
+    }
+    $morceaux = [];
+    $courant = '';
+    foreach (preg_split('/\R/u', $texte) as $ligne) {
+        if ($courant !== '' && mb_strlen($courant) + mb_strlen($ligne) + 1 > $max) {
+            $morceaux[] = $courant;
+            $courant = '';
+        }
+        $courant .= ($courant === '' ? '' : "\n") . $ligne;
+    }
+    if ($courant !== '') {
+        $morceaux[] = $courant;
+    }
+    return $morceaux;
+}
+
+// Graph API call; returns true on success. Failures are logged, never
+// thrown - the webhook has already answered Meta.
+function wa_api(array $wa, array $donnees): bool
+{
+    if (empty($wa['access_token']) || empty($wa['phone_number_id'])) {
+        error_log('whatsapp: access_token or phone_number_id missing in ai/config.php');
+        return false;
+    }
+    $url = 'https://graph.facebook.com/' . ($wa['graph_version'] ?? 'v25.0') . '/' . rawurlencode((string)$wa['phone_number_id']) . '/messages';
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $wa['access_token']],
+        CURLOPT_POSTFIELDS => json_encode(['messaging_product' => 'whatsapp'] + $donnees, JSON_UNESCAPED_UNICODE),
+        CURLOPT_TIMEOUT => 20,
+    ]);
+    $reponse = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $erreur = curl_error($ch);
+    curl_close($ch);
+    if ($reponse === false || $code >= 400) {
+        error_log("whatsapp: API error HTTP $code $erreur " . substr((string)$reponse, 0, 300));
+        return false;
+    }
+    return true;
+}
+
+function wa_envoyer_texte(array $wa, string $a, string $texte): bool
+{
+    $ok = true;
+    foreach (wa_decouper($texte) as $morceau) {
+        $ok = wa_api($wa, ['to' => $a, 'type' => 'text', 'text' => ['body' => $morceau, 'preview_url' => false]]) && $ok;
+    }
+    return $ok;
+}
+
+function wa_marquer_lu(array $wa, string $wamid): void
+{
+    wa_api($wa, ['status' => 'read', 'message_id' => $wamid]);
+}
+
+// Handles every customer message of one webhook payload. $envoyer(to, text)
+// sends a reply; $marquerLu(wamid) marks the message as read (both injected
+// so tests run without Meta). Returns what was done, for tests and logs.
+function wa_traiter_payload(PDO $pdo, array $config, array $payload, callable $envoyer, ?callable $marquerLu = null): array
+{
+    $wa = $config['whatsapp'] ?? [];
+    $site = (string)($wa['site_url'] ?? 'https://souqpieceba.com');
+    $limiteJour = (int)($wa['max_per_number_per_day'] ?? 100);
+    $journal = [];
+
+    foreach (wa_messages_recus($payload) as $m) {
+        // Meta redelivers webhooks: handle each message id once.
+        $stmt = $pdo->prepare('INSERT IGNORE INTO ai_whatsapp_recu (wamid, telephone) VALUES (?, ?)');
+        $stmt->execute([$m['wamid'], $m['de']]);
+        if ($stmt->rowCount() === 0) {
+            $journal[] = ['wamid' => $m['wamid'], 'action' => 'doublon'];
+            continue;
+        }
+        if ($marquerLu !== null) {
+            $marquerLu($m['wamid']);
+        }
+
+        if ($m['type'] !== 'text' || $m['texte'] === '') {
+            $envoyer($m['de'], WA_TEXTE_SEULEMENT);
+            $journal[] = ['wamid' => $m['wamid'], 'action' => 'non_texte', 'type' => $m['type']];
+            continue;
+        }
+
+        $idSession = 'wa:' . $m['de'];
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM ai_conversation WHERE id_session = ? AND role = 'user' AND created_at > (NOW() - INTERVAL 1 DAY)");
+        $stmt->execute([$idSession]);
+        if ((int)$stmt->fetchColumn() >= $limiteJour) {
+            $envoyer($m['de'], WA_LIMITE);
+            $journal[] = ['wamid' => $m['wamid'], 'action' => 'limite'];
+            continue;
+        }
+
+        $texte = mb_substr($m['texte'], 0, (int)($config['max_message_length'] ?? 1000));
+        $tour = ai_traiter_tour($pdo, $config, $idSession, $texte, function () use ($envoyer, $m) {
+            $envoyer($m['de'], AI_MESSAGE_INDISPONIBLE);
+        });
+
+        $reponse = wa_formater_reponse($tour['reply'], $site);
+        // Meta's policy: say it is an automated assistant at the start of a
+        // conversation.
+        if (!$tour['historique']) {
+            $reponse = WA_NOTICE . $reponse;
+        }
+        $envoyer($m['de'], $reponse);
+        $journal[] = ['wamid' => $m['wamid'], 'action' => $tour['ok'] ? 'repondu' : 'echec', 'reponse' => $reponse];
+    }
+    return $journal;
+}

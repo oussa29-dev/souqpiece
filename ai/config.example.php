@@ -47,6 +47,19 @@ return [
     // php -r 'echo password_hash("...", PASSWORD_DEFAULT);'
     'dev_password_hash' => '',
 
+    // WhatsApp channel (ai/whatsapp.php, Meta WhatsApp Cloud API).
+    // Values from the Meta app "Souqpiece Assistant" > WhatsApp > API Setup.
+    'whatsapp' => [
+        'enabled' => false,               // replies only when true
+        'phone_number_id' => '',          // Meta "Phone number ID" (not secret)
+        'access_token' => '',             // SECRET - system-user token in production
+        'app_secret' => '',               // SECRET - App settings > Basic > App secret (webhook signature)
+        'verify_token' => '',             // a word you choose, typed again in Meta's webhook setup
+        'graph_version' => 'v25.0',
+        'site_url' => 'https://souqpieceba.com',   // product links in replies
+        'max_per_number_per_day' => 100,  // safety cap per customer number
+    ],
+
     'gemini' => [
         'api_key' => 'PUT_YOUR_GEMINI_API_KEY_HERE',
         // Exact version, never a "-latest" alias: Google moves aliases to
