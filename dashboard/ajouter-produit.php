@@ -50,6 +50,15 @@
         {
             return ctype_digit((string)$valeur) && (int)$valeur > 0;
         }
+
+        // Marque saisie : espaces superflus retires (comme les imports de stock,
+        // pour que la piece corresponde au logiciel), et "que des espaces" =
+        // un seul espace = pas de marque.
+        function marque_saisie(string $valeur): string
+        {
+            $marque = trim($valeur);
+            return $marque === '' ? ' ' : $marque;
+        }
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
         include('include/menu.php');
@@ -114,8 +123,11 @@
                 if (trim((string)($_POST['prix'] ?? '')) === '') {
                     $erreurs[] = 'Le prix est obligatoire.';
                 }
-                if (trim($_POST['marquepiece'] ?? '') === '') {
-                    $erreurs[] = 'La marque de la pièce est obligatoire.';
+                // Une marque vide est refusee, mais un espace est accepte : il veut dire
+                // "pas de marque", comme dans le logiciel du magasin (pieces sans marque,
+                // en carton). Inventer une marque ferait diverger les mises a jour.
+                if (($_POST['marquepiece'] ?? '') === '') {
+                    $erreurs[] = 'La marque de la pièce est obligatoire (tapez un espace si la pièce n\'a pas de marque).';
                 }
                 if (($_POST['categorie'] ?? 'categorie') === 'categorie' || trim($_POST['categorie'] ?? '') === '') {
                     $erreurs[] = 'La catégorie est obligatoire.';
@@ -177,7 +189,7 @@
                     <label for="produit">Produit</label>
                     <input type="text" name="libelle" placeholder="entrer le produit" value="<?=$produit['libelle']?>" required>
                     <label for="produit">Marque piece</label>
-                    <input type="text" name="marquepiece" placeholder="entrer la marque du produit" value="<?=$produit['marquepiece']?>" required>
+                    <input type="text" name="marquepiece" placeholder="marque (un espace si aucune)" value="<?= htmlspecialchars((string)$produit['marquepiece']) ?>" required>
                     <label for="prix">Prix</label>
                     <input type="number" name="prix" placeholder="Prix" min="0" value="<?=$produit['prix']?>" required>
                     <label for="pays_origine_produit">Pays d'origine</label>
@@ -483,7 +495,7 @@
                     // que l'ecraser avec un champ qui n'est plus soumis.
                     $trie = $produit['trie'];
                     $libelle = $_POST['libelle'];
-                    $marquepiece = $_POST['marquepiece'];
+                    $marquepiece = marque_saisie((string)$_POST['marquepiece']);
                     $prix = $_POST['prix'];
                     $categorie = $_POST['categorie'];
                     $sous = $_POST['sous_categorie'];
@@ -863,8 +875,11 @@
             if (trim((string)($_POST['prix'] ?? '')) === '') {
                 $erreurs[] = 'Le prix est obligatoire.';
             }
-            if (trim($_POST['marquepiece'] ?? '') === '') {
-                $erreurs[] = 'La marque de la pièce est obligatoire.';
+            // Une marque vide est refusee, mais un espace est accepte : il veut dire
+                // "pas de marque", comme dans le logiciel du magasin (pieces sans marque,
+                // en carton). Inventer une marque ferait diverger les mises a jour.
+                if (($_POST['marquepiece'] ?? '') === '') {
+                $erreurs[] = 'La marque de la pièce est obligatoire (tapez un espace si la pièce n\'a pas de marque).';
             }
             if (($_POST['categorie'] ?? 'categorie') === 'categorie' || trim($_POST['categorie'] ?? '') === '') {
                 $erreurs[] = 'La catégorie est obligatoire.';
@@ -926,7 +941,7 @@
 
                 <label for="marque">Marque piece</label>
 
-                <input type="text" name="marquepiece" placeholder="entrer la marque du produit" value="<?= htmlspecialchars($valMarquepiece) ?>" required>
+                <input type="text" name="marquepiece" placeholder="marque (un espace si aucune)" value="<?= htmlspecialchars($valMarquepiece) ?>" required>
 
                 <label for="prix">Prix</label>
 
@@ -1142,7 +1157,7 @@
                     // nouveau produit n'est jamais mis en avant par defaut.
                     $trie = 0;
                     $libelle = $_POST['libelle'];
-                    $marquepiece = $_POST['marquepiece'];
+                    $marquepiece = marque_saisie((string)$_POST['marquepiece']);
                     $prix = $_POST['prix'];
                     $categorie = $_POST['categorie'];
                     $sous = $_POST['sous_categorie'];
