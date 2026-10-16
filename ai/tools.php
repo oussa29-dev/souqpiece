@@ -446,12 +446,12 @@ function ai_lookup_by_reference(PDO $pdo, string $reference): array
             unset($row['id_produit']);
             $row['prix'] = null;
             $row['prix_non_disponible'] = true;
-            $brand = $row['marquepiece'] !== '' ? $row['marquepiece'] : 'NON SPECIFIE';
+            $brand = trim((string)$row['marquepiece']) !== '' ? $row['marquepiece'] : 'NON SPECIFIE';
             $grouped[$brand][] = $row;
             continue;
         }
         $row['url'] = 'produit.php?id=' . $row['id_produit'];
-        $brand = $row['marquepiece'] !== '' ? $row['marquepiece'] : 'NON SPECIFIE';
+        $brand = trim((string)$row['marquepiece']) !== '' ? $row['marquepiece'] : 'NON SPECIFIE';
         $grouped[$brand][] = $row;
     }
     return $grouped;

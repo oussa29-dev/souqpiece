@@ -92,6 +92,9 @@ function ai_traiter_tour(PDO $pdo, array $config, string $id_session, string $me
     $reponseEnregistree = true;
 
     $reply = $result['text'] !== '' ? $result['text'] : 'عذراً، لم أتمكن من معالجة طلبك. / Désolé, je n\'ai pas pu traiter votre demande.';
+    // A part with no brand (a space in the product form) leaves an empty
+    // slot: "CULASSE -  - 98100 DA".
+    $reply = preg_replace('/ - +- /u', ' - ', $reply);
     $pdo->prepare('INSERT INTO ai_conversation (id_session, role, message, tools_called) VALUES (?, ?, ?, ?)')
         ->execute([
             $id_session,

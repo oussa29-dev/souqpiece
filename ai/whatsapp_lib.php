@@ -7,7 +7,9 @@
 
 require_once __DIR__ . '/conversation.php';
 
-const WA_NOTICE = "🤖 مساعد آلي لـ SOUQPIECE BA - Assistant automatique.\n";
+// Starts with Latin text: WhatsApp lays out a message starting with Arabic
+// right-to-left, which scrambles the product lines and links under it.
+const WA_NOTICE = "🤖 SOUQPIECE BA - Assistant automatique / مساعد آلي\n\n";
 const WA_TEXTE_SEULEMENT = 'يرجى كتابة طلبك نصاً (اسم القطعة والسيارة). / Merci d\'écrire votre demande en texte (pièce et véhicule).';
 const WA_LIMITE = 'لقد وصلت للحد الأقصى من الرسائل اليوم، تواصل مع المحل. / Limite quotidienne de messages atteinte, contactez le magasin.';
 
@@ -47,11 +49,14 @@ function wa_messages_recus(array $payload): array
 }
 
 // WhatsApp shows plain text only: the widget's "[label](produit.php?...)"
-// links become full addresses on the shop's domain.
+// links become full addresses on the shop's domain, each on its own line
+// with a blank line after it - a long address inside a line wraps badly,
+// worst in right-to-left (Arabic) messages.
 function wa_formater_reponse(string $texte, string $site): string
 {
     $site = rtrim($site, '/');
-    $texte = preg_replace_callback('/\[([^\]]+)\]\((produit\.php\?[^)\s]+)\)/u', fn($m) => $site . '/' . $m[2], $texte);
+    $texte = preg_replace_callback('/[ \t]*[-:]?[ \t]*\[([^\]]+)\]\((produit\.php\?[^)\s]+)\)[ \t]*/u', fn($m) => "\n" . $site . '/' . $m[2] . "\n\n", $texte);
+    $texte = preg_replace('/\n{3,}/', "\n\n", $texte);
     return trim($texte);
 }
 
