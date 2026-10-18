@@ -110,7 +110,7 @@ foreach ($recherches as [$label, $q, $idVoiture, $motif, $voituresOk, $min]) {
 foreach ($classements as [$label, $q, $idVoiture, $motif]) {
     $rows = ai_search_products($pdo, $q, $idVoiture, null, 8);
     $premier = $rows[0]['libelle'] ?? '';
-    $affiche($premier !== '' && preg_match($motif, trim($premier)) === 1, "top \"$q\"" . ($idVoiture ? " v$idVoiture" : '') . " ($label)", 'premier: ' . ($premier !== '' ? trim($premier) . ' (stock ' . $rows[0]['stock'] . ')' : 'aucun'));
+    $affiche($premier !== '' && preg_match($motif, trim($premier)) === 1, "top \"$q\"" . ($idVoiture ? " v$idVoiture" : '') . " ($label)", 'premier: ' . ($premier !== '' ? trim($premier) . ($rows[0]['disponible'] ? ' (disponible)' : ' (non disponible)') : 'aucun'));
 }
 
 foreach ($references as [$label, $ref, $trouve, $prixDispo]) {

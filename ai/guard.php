@@ -60,6 +60,49 @@ function ai_ajouter_refs_proches(string $texte, array $refs): string
     }, preg_split('/\R/u', $texte)));
 }
 
+// id_produit => true/false (available), for every product in a tool result.
+function ai_disponibilites_resultat($resultat, array &$dispo): void
+{
+    if (!is_array($resultat)) {
+        return;
+    }
+    if (isset($resultat['id_produit']) && is_scalar($resultat['id_produit']) && array_key_exists('disponible', $resultat)) {
+        $dispo[(int)$resultat['id_produit']] = (bool)$resultat['disponible'];
+    }
+    foreach ($resultat as $valeur) {
+        if (is_array($valeur)) {
+            ai_disponibilites_resultat($valeur, $dispo);
+        }
+    }
+}
+
+// The word on a product's line must match the catalog: production 18/10,
+// DEMARREUR DJ (stock 0) was shown "disponible" to the store owner. Lines
+// linking several products with different availability are left alone.
+function ai_corriger_disponibilite(string $texte, array $dispo): string
+{
+    if (!$dispo) {
+        return $texte;
+    }
+    return implode("\n", array_map(function ($ligne) use ($dispo) {
+        $etats = array_unique(array_map(fn($id) => $dispo[$id] ?? null, ai_ids_produits_reponse($ligne)), SORT_REGULAR);
+        if (count($etats) !== 1 || current($etats) === null) {
+            return $ligne;
+        }
+        if (current($etats)) {
+            $ligne = preg_replace('/\b(non[ -]disponible|indisponible)\b/iu', 'disponible', $ligne);
+            return preg_replace('/غير\s+(متوفر)/u', '$1', $ligne);
+        }
+        if (!preg_match('/\b(non[ -]disponible|indisponible)\b/iu', $ligne)) {
+            $ligne = preg_replace('/\bdisponible\b/iu', 'non disponible', $ligne);
+        }
+        if (!preg_match('/غير\s+متوفر/u', $ligne)) {
+            $ligne = preg_replace('/متوفر/u', 'غير متوفر', $ligne);
+        }
+        return $ligne;
+    }, preg_split('/\R/u', $texte)));
+}
+
 // Product ids linked in a reply ("produit.php?id=123...").
 function ai_ids_produits_reponse(string $texte): array
 {
@@ -80,8 +123,9 @@ function ai_converse_verifie(LlmProvider $provider, string $systemPrompt, array 
 {
     $ids = [];
     $refsProches = [];
+    $dispo = [];
     $vehiculesAutorises = array_fill_keys(array_map('intval', $vehiculesConnus), true);
-    $dispatcherSuivi = function (string $name, array $args) use ($dispatcher, &$ids, &$refsProches, &$vehiculesAutorises) {
+    $dispatcherSuivi = function (string $name, array $args) use ($dispatcher, &$ids, &$refsProches, &$dispo, &$vehiculesAutorises) {
         $idVoiture = (int)($args['id_voiture'] ?? 0);
         if ($name !== 'resolve_vehicle' && $idVoiture > 0 && !isset($vehiculesAutorises[$idVoiture])) {
             error_log("ai: id_voiture $idVoiture not returned by resolve_vehicle, call refused");
@@ -95,13 +139,14 @@ function ai_converse_verifie(LlmProvider $provider, string $systemPrompt, array 
         }
         ai_ids_produits_resultat($resultat, $ids);
         ai_refs_proches_resultat($resultat, $refsProches);
+        ai_disponibilites_resultat($resultat, $dispo);
         return $resultat;
     };
 
     $result = $provider->converse($systemPrompt, $history, $message, $schemas, $dispatcherSuivi);
     $inventes = array_diff(ai_ids_produits_reponse($result['text']), array_keys($ids));
     if ($inventes === []) {
-        $result['text'] = ai_ajouter_refs_proches($result['text'], $refsProches);
+        $result['text'] = ai_corriger_disponibilite(ai_ajouter_refs_proches($result['text'], $refsProches), $dispo);
         return $result;
     }
 
@@ -131,6 +176,6 @@ function ai_converse_verifie(LlmProvider $provider, string $systemPrompt, array 
     if ($retry['text'] === '') {
         $retry['text'] = "عذراً، لم أتمكن من التحقق من هذه القطعة في الكتالوج. أعد صياغة الطلب أو اتصل بالمحل. / Désolé, je n'ai pas pu vérifier cette pièce dans le catalogue. Reformulez ou contactez le magasin.";
     }
-    $retry['text'] = ai_ajouter_refs_proches($retry['text'], $refsProches);
+    $retry['text'] = ai_corriger_disponibilite(ai_ajouter_refs_proches($retry['text'], $refsProches), $dispo);
     return $retry;
 }

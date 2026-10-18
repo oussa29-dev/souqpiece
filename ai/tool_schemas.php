@@ -10,7 +10,7 @@ function ai_tool_schemas(): array
     return [
         [
             'name' => 'search_products',
-            'description' => 'Search the parts catalog by free text (French part names, descriptions, or OEM reference numbers). Returns matching products with price, stock and a direct product page URL.',
+            'description' => 'Search the parts catalog by free text (French part names, descriptions, or OEM reference numbers). Returns matching products with price, availability (disponible: true/false) and a direct product page URL.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -48,7 +48,7 @@ function ai_tool_schemas(): array
         ],
         [
             'name' => 'get_product',
-            'description' => 'Get full detail for one specific product: price, stock, brand, category, fitment description, and product page URL.',
+            'description' => 'Get full detail for one specific product: price, availability (disponible: true/false), brand, category, fitment description, and product page URL.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [

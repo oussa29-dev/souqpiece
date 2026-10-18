@@ -313,6 +313,7 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($rows as &$row) {
+        $row = ai_disponibilite($row);
         $row['url'] = 'produit.php?id=' . $row['id_produit']
             . (!empty($row['voiture_id']) ? '&id_voiture=' . $row['voiture_id'] : '');
         if ($id_voiture !== null && empty($row['voiture_id'])) {
@@ -440,6 +441,7 @@ function ai_lookup_by_reference(PDO $pdo, string $reference): array
     // instead of picking one silently (43.6% of references are ambiguous).
     $grouped = [];
     foreach ($rows as $row) {
+        $row = ai_disponibilite($row);
         if ((int)$row['prix'] <= 0) {
             // No id either: given one, the model built a product link itself
             // (eval_chat F), despite the prompt forbidding it.
@@ -558,6 +560,17 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     return $retour;
 }
 
+// The model gets availability, never the quantity: it once turned
+// "stock": "0" into "disponible" (production 18/10, DEMARREUR DJ for the
+// Corolla NDE180), and quantities must not reach customers anyway (prompt
+// rule 1).
+function ai_disponibilite(array $row): array
+{
+    $row['disponible'] = (int)($row['stock'] ?? 0) > 0;
+    unset($row['stock']);
+    return $row;
+}
+
 function ai_get_product(PDO $pdo, int $id_produit, ?int $id_voiture = null): ?array
 {
     $stmt = $pdo->prepare('
@@ -588,7 +601,7 @@ function ai_get_product(PDO $pdo, int $id_produit, ?int $id_voiture = null): ?ar
         'libelle' => $produit['libelle'],
         'marquepiece' => $produit['marquepiece'],
         'prix' => $produit['prix'],
-        'stock' => $produit['stock'],
+        'disponible' => (int)$produit['stock'] > 0,
         'sous_categorie' => $produit['sous_categorie_nom'],
         'description' => $pvd['description'] ?? null,
         'url' => 'produit.php?id=' . $produit['id_produit'] . '&id_voiture=' . $voiture,

@@ -218,5 +218,22 @@ check('known wilaya + bureau resolves', $r !== null && $r['prix'] > 0, $r);
 $r = ai_get_delivery_price($pdo, 'WilayaDoesNotExist', 'domicile');
 check('unknown wilaya returns null, not error', $r === null);
 
+echo "\n== Availability (production 18/10: DEMARREUR DJ stock 0 shown \"disponible\")\n";
+require_once __DIR__ . '/guard.php';
+$r = ai_search_products($pdo, 'demarreur', 54);
+check('search rows give disponible true/false, never the stock quantity',
+    $r && !array_filter($r, fn($x) => array_key_exists('stock', $x) || !is_bool($x['disponible'] ?? null)), $r);
+$p = ai_get_product($pdo, 6967);
+check('get_product gives disponible, not stock', $p && is_bool($p['disponible']) && !array_key_exists('stock', $p), $p);
+$dispo = [6967 => false, 7518 => true];
+$t = ai_corriger_disponibilite("DEMARREUR - DJ - 29400 DA - disponible - [voir le produit](produit.php?id=6967&id_voiture=54)", $dispo);
+check('unavailable product shown "disponible" -> "non disponible"', strpos($t, '29400 DA - non disponible - [') !== false, $t);
+$t = ai_corriger_disponibilite("ديمارور - DJ - 29400 DA - متوفر - [voir le produit](produit.php?id=6967)", $dispo);
+check('unavailable product shown "متوفر" -> "غير متوفر"', strpos($t, 'غير متوفر') !== false, $t);
+$ok = "CULASSE - 98100 DA - disponible - [voir le produit](produit.php?id=7518)\nDEMARREUR - DJ - 29400 DA - non disponible - [voir le produit](produit.php?id=6967)\nVeuillez confirmer la disponibilité.";
+check('correct lines and text without links left unchanged', ai_corriger_disponibilite($ok, $dispo) === $ok, ai_corriger_disponibilite($ok, $dispo));
+$t = ai_corriger_disponibilite("CULASSE - 98100 DA - غير متوفر - [voir le produit](produit.php?id=7518)", $dispo);
+check('available product shown "غير متوفر" -> "متوفر"', strpos($t, 'غير') === false && strpos($t, 'متوفر') !== false, $t);
+
 echo "\n---\n$pass passed, $fail failed\n";
 exit($fail > 0 ? 1 : 0);
