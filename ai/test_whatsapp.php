@@ -34,7 +34,8 @@ $payload = function (string $wamid, string $type, string $texte = '') use ($nume
     }
     return ['object' => 'whatsapp_business_account', 'entry' => [['id' => 'WABA', 'changes' => [[
         'field' => 'messages',
-        'value' => ['messaging_product' => 'whatsapp', 'metadata' => ['phone_number_id' => 'X'], 'messages' => [$m]],
+        'value' => ['messaging_product' => 'whatsapp', 'metadata' => ['phone_number_id' => 'X'],
+            'contacts' => [['profile' => ['name' => 'Client Test'], 'wa_id' => $numeroTest]], 'messages' => [$m]],
     ]]]]];
 };
 $nettoyer = function () use ($pdo, $numeroTest) {
@@ -48,6 +49,7 @@ $statut = ['entry' => [['changes' => [['field' => 'messages', 'value' => ['statu
 $verifier(wa_messages_recus($statut) === [], 'statuts de livraison ignores');
 $recus = wa_messages_recus($payload('wamid.T1', 'text', 'Culasse coaster'));
 $verifier(count($recus) === 1 && $recus[0]['texte'] === 'Culasse coaster' && $recus[0]['de'] === $numeroTest, 'message texte extrait', $recus);
+$verifier(($recus[0]['nom'] ?? '') === 'Client Test', 'nom de profil WhatsApp du client extrait', $recus);
 $corps = '{"a":1}';
 $verifier(wa_signature_valide($corps, 'sha256=' . hash_hmac('sha256', $corps, 's3cret'), 's3cret'), 'signature Meta valide acceptee');
 $verifier(!wa_signature_valide($corps, 'sha256=' . hash_hmac('sha256', $corps, 'autre'), 's3cret'), 'signature invalide refusee');
@@ -67,6 +69,7 @@ $marquer = function ($wamid) use (&$lus) { $lus[] = $wamid; };
 
 $j = wa_traiter_payload($pdo, $config, $payload('wamid.IMG', 'image'), $envoyer, $marquer);
 $verifier(($j[0]['action'] ?? '') === 'non_texte' && ($envoyes[0][1] ?? '') === WA_TEXTE_SEULEMENT && $lus === ['wamid.IMG'], 'image -> demande d ecrire en texte, message marque lu', $j);
+$verifier($pdo->query("SELECT nom_profil FROM ai_whatsapp_recu WHERE wamid = 'wamid.IMG'")->fetchColumn() === 'Client Test', 'nom de profil enregistre avec le message');
 $j = wa_traiter_payload($pdo, $config, $payload('wamid.IMG', 'image'), $envoyer, $marquer);
 $verifier(($j[0]['action'] ?? '') === 'doublon' && count($envoyes) === 1, 'meme message relivre par Meta -> ignore', $j);
 

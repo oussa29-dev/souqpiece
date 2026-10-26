@@ -25,8 +25,9 @@ function wa_signature_valide(string $corps, string $entete, string $secret): boo
     return hash_equals($attendu, $entete);
 }
 
-// Incoming customer messages of a webhook payload: [['wamid', 'de', 'type',
-// 'texte']]. Delivery/read statuses (the shop's own messages) are ignored.
+// Incoming customer messages of a webhook payload: [['wamid', 'de', 'nom',
+// 'type', 'texte']], 'nom' being the sender's WhatsApp profile name (or '').
+// Delivery/read statuses (the shop's own messages) are ignored.
 function wa_messages_recus(array $payload): array
 {
     $messages = [];
@@ -35,10 +36,15 @@ function wa_messages_recus(array $payload): array
             if (($changement['field'] ?? '') !== 'messages') {
                 continue;
             }
+            $noms = [];
+            foreach ($changement['value']['contacts'] ?? [] as $contact) {
+                $noms[(string)($contact['wa_id'] ?? '')] = trim((string)($contact['profile']['name'] ?? ''));
+            }
             foreach ($changement['value']['messages'] ?? [] as $m) {
                 $messages[] = [
                     'wamid' => (string)($m['id'] ?? ''),
                     'de' => preg_replace('/\D/', '', (string)($m['from'] ?? '')),
+                    'nom' => mb_substr($noms[(string)($m['from'] ?? '')] ?? '', 0, 100),
                     'type' => (string)($m['type'] ?? ''),
                     'texte' => trim((string)($m['text']['body'] ?? '')),
                 ];
@@ -145,8 +151,8 @@ function wa_traiter_payload(PDO $pdo, array $config, array $payload, callable $e
 
     foreach (wa_messages_recus($payload) as $m) {
         // Meta redelivers webhooks: handle each message id once.
-        $stmt = $pdo->prepare('INSERT IGNORE INTO ai_whatsapp_recu (wamid, telephone) VALUES (?, ?)');
-        $stmt->execute([$m['wamid'], $m['de']]);
+        $stmt = $pdo->prepare('INSERT IGNORE INTO ai_whatsapp_recu (wamid, telephone, nom_profil) VALUES (?, ?, ?)');
+        $stmt->execute([$m['wamid'], $m['de'], $m['nom'] !== '' ? $m['nom'] : null]);
         if ($stmt->rowCount() === 0) {
             $journal[] = ['wamid' => $m['wamid'], 'action' => 'doublon'];
             continue;
