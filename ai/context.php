@@ -133,3 +133,19 @@ function ai_store_info_block(PDO $pdo, array $config): string
     return "\n\nStore information (the only facts you may give about the store itself):\n" . implode("\n", $lignes) . "\n"
         . "For any store question not answered above (opening hours, address, wholesale conditions, payment...), say you don't have that detail and give the phone number above. Never invent store details.";
 }
+
+// Registered wholesale customer (client_gros, recognised by the WhatsApp
+// sender's number): tool prices are then wholesale prices, see
+// ai_appliquer_tarif_gros(). Empty for everyone else - retail customers are
+// never told wholesale prices exist per customer.
+function ai_bloc_client_gros(?array $client): string
+{
+    if ($client === null) {
+        return '';
+    }
+    $nom = trim(preg_replace('/\s+/u', ' ', mb_substr((string)($client['nom'] ?? ''), 0, 60)));
+    return "\n\nWholesale customer: this conversation is with " . ($nom !== '' ? "\"$nom\", " : '') . "a registered wholesale customer of the store. "
+        . "In tool results, a product with tarif \"gros\" has its wholesale price in `prix`: present it as the wholesale price (\"prix gros\" in French, \"سعر الجملة\" in Arabic). "
+        . "A product with tarif \"detail\" has no wholesale price on file: give that price as the retail price (\"prix détail\" / \"سعر التجزئة\") and say the wholesale price for it is available from the store. "
+        . "Never present a retail price as a wholesale price.";
+}

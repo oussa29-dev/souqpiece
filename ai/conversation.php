@@ -44,11 +44,13 @@ function ai_historique(PDO $pdo, string $id_session, int $tours): array
 // error log location is unknown, and a turn cut short there (01/10) left no
 // way to know why. $surEchecFatal is called after a fatal error (time limit,
 // memory) has been recorded, so the channel can still answer something.
-function ai_traiter_tour(PDO $pdo, array $config, string $id_session, string $message, ?callable $surEchecFatal = null): array
+// $clientGros: client_gros row of a registered wholesale customer (WhatsApp
+// channel) - prices become wholesale prices.
+function ai_traiter_tour(PDO $pdo, array $config, string $id_session, string $message, ?callable $surEchecFatal = null, ?array $clientGros = null): array
 {
     $historyRows = ai_historique($pdo, $id_session, (int)($config['history_turns'] ?? 10));
     $history = array_map(fn($r) => ['role' => $r['role'], 'text' => $r['message']], $historyRows);
-    $systemPrompt = ai_system_prompt() . ai_store_info_block($pdo, $config) . ai_session_context($pdo, $historyRows);
+    $systemPrompt = ai_system_prompt() . ai_store_info_block($pdo, $config) . ai_session_context($pdo, $historyRows) . ai_bloc_client_gros($clientGros);
 
     $pdo->prepare('INSERT INTO ai_conversation (id_session, role, message) VALUES (?, ?, ?)')
         ->execute([$id_session, 'user', $message]);
@@ -81,7 +83,7 @@ function ai_traiter_tour(PDO $pdo, array $config, string $id_session, string $me
 
     try {
         $provider = ai_make_provider($config);
-        $dispatcher = ai_build_tool_dispatcher($pdo);
+        $dispatcher = ai_build_tool_dispatcher($pdo, $clientGros !== null);
         $result = ai_converse_verifie($provider, $systemPrompt, $history, $message, ai_tool_schemas(), $dispatcher, ai_vehicules_connus($historyRows));
     } catch (Throwable $e) {
         // Never shown to the customer (could contain internal details).

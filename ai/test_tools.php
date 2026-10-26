@@ -8,6 +8,7 @@ if (php_sapi_name() !== 'cli') {
 
 require_once __DIR__ . '/../dashboard/database.php';
 require_once __DIR__ . '/tools.php';
+require_once __DIR__ . '/tool_schemas.php';
 
 $pass = 0;
 $fail = 0;
@@ -217,6 +218,24 @@ check('known wilaya + bureau resolves', $r !== null && $r['prix'] > 0, $r);
 
 $r = ai_get_delivery_price($pdo, 'WilayaDoesNotExist', 'domicile');
 check('unknown wilaya returns null, not error', $r === null);
+
+echo "\n== Wholesale price (client_gros)\n";
+require_once __DIR__ . '/../dashboard/include/prix_gros.php';
+check('estimate: 21000 DA retail -> 17500 PV Gros (x1.2)', prix_gros_estimer(21000) === 17500, prix_gros_estimer(21000));
+check('estimate: 3000 DA tie (2000 x1.5 / 2143 x1.4) -> the multiple of 5', prix_gros_estimer(3000) === 2000, prix_gros_estimer(3000));
+check('estimate: every PV Gros 1..70000 step 5 comes back unchanged or null, never wrong',
+    !array_filter(range(5, 70000, 5), fn($pv) => ($e = prix_gros_estimer((int)round(stock_appliquer_marge($pv)))) !== null && $e !== $pv));
+$avecGros = (int)$pdo->query('SELECT id_produit FROM produit WHERE prix_gros > 0 AND prix > prix_gros ORDER BY id_produit LIMIT 1')->fetchColumn();
+$sansGros = (int)$pdo->query('SELECT id_produit FROM produit WHERE prix > 0 AND prix_gros IS NULL ORDER BY id_produit LIMIT 1')->fetchColumn();
+$prixGros = (int)$pdo->query("SELECT prix_gros FROM produit WHERE id_produit = $avecGros")->fetchColumn();
+$r = ai_appliquer_tarif_gros($pdo, ['vendeur' => [['id_produit' => $avecGros, 'prix' => 99999], ['id_produit' => $sansGros, 'prix' => 12345], ['reference' => 'X', 'prix' => null]]]);
+check('wholesale customer: product with a PV Gros gets it, tagged "gros"', $r['vendeur'][0]['prix'] === $prixGros && $r['vendeur'][0]['tarif'] === 'gros', $r);
+check('wholesale customer: product without one keeps its retail price, tagged "detail"', $r['vendeur'][1]['prix'] === 12345 && $r['vendeur'][1]['tarif'] === 'detail', $r);
+check('row without id or price left alone', !isset($r['vendeur'][2]['tarif']), $r);
+$normal = ai_build_tool_dispatcher($pdo)('get_product', ['id_produit' => $avecGros]);
+$gros = ai_build_tool_dispatcher($pdo, true)('get_product', ['id_produit' => $avecGros]);
+check('retail customer: never the wholesale price, no tarif field', isset($normal['prix']) && (int)$normal['prix'] !== $prixGros && !isset($normal['tarif']) && !array_key_exists('prix_gros', $normal), $normal);
+check('wholesale customer through the dispatcher: wholesale price', (int)($gros['prix'] ?? 0) === $prixGros && ($gros['tarif'] ?? '') === 'gros', $gros);
 
 echo "\n== Availability (production 18/10: DEMARREUR DJ stock 0 shown \"disponible\")\n";
 require_once __DIR__ . '/guard.php';

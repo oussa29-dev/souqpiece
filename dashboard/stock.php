@@ -43,6 +43,7 @@
         require_once 'include/import_format.php';
         require_once 'include/import_photos.php';
         require_once 'include/import_journal.php';
+        require_once 'include/prix_gros.php';
 
         use PhpOffice\PhpSpreadsheet\IOFactory;
 
@@ -100,44 +101,7 @@
             return ' - environ ' . (int)round($restant / 60) . ' min restantes';
         }
 
-        // Meme bareme de marge que la version precedente du code,
-        // reutilise a l'identique pour le stock complet et pour les
-        // nouveaux produits crees via les achats du jour (voir remarque
-        // dans le rapport de session : ce bareme s'applique au prix
-        // trouve dans la colonne "PV Gros"/"P.Vente Moyen" du fichier,
-        // pas au prix d'achat).
-        function stock_appliquer_marge(float $prixInitial): float
-        {
-            $prix = $prixInitial;
-            if ($prixInitial > 0 && $prixInitial <= 2000) {
-                $prix *= 1.5;
-            }
-            if ($prixInitial > 2000 && $prixInitial <= 4000) {
-                $prix *= 1.4;
-            }
-            if ($prixInitial > 4000 && $prixInitial <= 6000) {
-                $prix *= 1.35;
-            }
-            if ($prixInitial > 6000 && $prixInitial <= 8000) {
-                $prix *= 1.3;
-            }
-            if ($prixInitial > 8000 && $prixInitial <= 15000) {
-                $prix *= 1.25;
-            }
-            if ($prixInitial > 15000 && $prixInitial <= 30000) {
-                $prix *= 1.2;
-            }
-            if ($prixInitial > 30000 && $prixInitial <= 50000) {
-                $prix *= 1.15;
-            }
-            if ($prixInitial > 50000 && $prixInitial <= 60000) {
-                $prix *= 1.12;
-            }
-            if ($prix > 60000) {
-                $prix *= 1.11;
-            }
-            return $prix;
-        }
+        // stock_appliquer_marge(): dashboard/include/prix_gros.php
 
         // Identifie TOUS les produits correspondant a une reference+marque -
         // dedupe par produit puis ne retombe sur la marque que si la
@@ -368,6 +332,9 @@
                 }
 
                 $prix = stock_appliquer_marge($prixInitial);
+                // Prix gros = exactement le PV Gros (decision du magasin,
+                // 13/10), donne aux clients gros par l'assistant.
+                $prixGros = $prixInitial > 0 ? (int)round($prixInitial) : null;
                 $stock = ($quant > 0) ? 1 : 0;
 
                 // Tous les produits correspondants, pas seulement le
@@ -382,10 +349,10 @@
                     // seule facon fiable de distinguer plus tard "en rupture"
                     // de "absent du logiciel du fournisseur" (produit jamais
                     // reconfirme par aucun import).
-                    $updateStmt = $pdo->prepare('UPDATE produit SET prix = ?, stock = ?, quantite = ?, derniere_verification_stock = NOW() WHERE id_produit = ?');
+                    $updateStmt = $pdo->prepare('UPDATE produit SET prix = ?, prix_gros = ?, prix_gros_estime = 0, stock = ?, quantite = ?, derniere_verification_stock = NOW() WHERE id_produit = ?');
                     $classificationExistant = $classifications[$libelle] ?? null;
                     foreach ($matchingProductIds as $matchingProductId) {
-                        $updateStmt->execute([$prix, $stock, $quant, $matchingProductId]);
+                        $updateStmt->execute([$prix, $prixGros, $stock, $quant, $matchingProductId]);
                         $updatedProductsCount++;
 
                         // Trace aussi les produits deja existants vers leur
@@ -408,8 +375,8 @@
                         $idCategorie = $classificationResolue ? ($classification['id_categorie'] ?? 0) : 0;
                         $idSousCategorie = $classificationResolue ? ($classification['id_sous_categorie'] ?? 0) : 0;
 
-                        $insertProductStmt = $pdo->prepare('INSERT INTO produit (libelle, marquepiece, prix, stock, quantite, id_categorie, id_sous_categorie, derniere_verification_stock) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())');
-                        $insertProductStmt->execute([$libelle, $marque, $prix, $stock, $quant, $idCategorie, $idSousCategorie]);
+                        $insertProductStmt = $pdo->prepare('INSERT INTO produit (libelle, marquepiece, prix, prix_gros, stock, quantite, id_categorie, id_sous_categorie, derniere_verification_stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+                        $insertProductStmt->execute([$libelle, $marque, $prix, $prixGros, $stock, $quant, $idCategorie, $idSousCategorie]);
                         $newProductId = $pdo->lastInsertId();
 
                         if ($newProductId <= 0) {
@@ -688,14 +655,15 @@
                 try {
                     $prixInitial = import_format_nombre(import_format_lire($sheet, $descripteur, $rowIndex, 'PV_GROS'));
                     $prix = stock_appliquer_marge($prixInitial);
+                    $prixGros = $prixInitial > 0 ? (int)round($prixInitial) : null;
 
                     $classification = $classifications[$libelle] ?? null;
                     $classificationResolue = $classification !== null && $classification['statut'] === 'resolu';
                     $idCategorie = $classificationResolue ? ($classification['id_categorie'] ?? 0) : 0;
                     $idSousCategorie = $classificationResolue ? ($classification['id_sous_categorie'] ?? 0) : 0;
 
-                    $insertProductStmt = $pdo->prepare('INSERT INTO produit (libelle, marquepiece, prix, stock, quantite, id_categorie, id_sous_categorie) VALUES (?, ?, ?, ?, ?, ?, ?)');
-                    $insertProductStmt->execute([$libelle, $marque, $prix, $stock, $stockActuel, $idCategorie, $idSousCategorie]);
+                    $insertProductStmt = $pdo->prepare('INSERT INTO produit (libelle, marquepiece, prix, prix_gros, stock, quantite, id_categorie, id_sous_categorie) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+                    $insertProductStmt->execute([$libelle, $marque, $prix, $prixGros, $stock, $stockActuel, $idCategorie, $idSousCategorie]);
                     $newProductId = $pdo->lastInsertId();
 
                     if ($newProductId <= 0) {

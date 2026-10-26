@@ -123,6 +123,16 @@ function wa_marquer_lu(array $wa, string $wamid): void
     wa_api($wa, ['status' => 'read', 'message_id' => $wamid]);
 }
 
+// Active wholesale customer with this WhatsApp number (Dashboard > Clients
+// gros stores numbers as 213XXXXXXXXX, the sender format), or null.
+function wa_client_gros(PDO $pdo, string $telephone): ?array
+{
+    $stmt = $pdo->prepare('SELECT id_client_gros, nom, code_client FROM client_gros WHERE telephone = ? AND actif = 1');
+    $stmt->execute([$telephone]);
+    $client = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $client ?: null;
+}
+
 // Handles every customer message of one webhook payload. $envoyer(to, text)
 // sends a reply; $marquerLu(wamid) marks the message as read (both injected
 // so tests run without Meta). Returns what was done, for tests and logs.
@@ -161,9 +171,10 @@ function wa_traiter_payload(PDO $pdo, array $config, array $payload, callable $e
         }
 
         $texte = mb_substr($m['texte'], 0, (int)($config['max_message_length'] ?? 1000));
+        $clientGros = wa_client_gros($pdo, $m['de']);
         $tour = ai_traiter_tour($pdo, $config, $idSession, $texte, function () use ($envoyer, $m) {
             $envoyer($m['de'], AI_MESSAGE_INDISPONIBLE);
-        });
+        }, $clientGros);
 
         $reponse = wa_formater_reponse($tour['reply'], $site);
         // Meta's policy: say it is an automated assistant at the start of a
@@ -172,7 +183,7 @@ function wa_traiter_payload(PDO $pdo, array $config, array $payload, callable $e
             $reponse = WA_NOTICE . $reponse;
         }
         $envoyer($m['de'], $reponse);
-        $journal[] = ['wamid' => $m['wamid'], 'action' => $tour['ok'] ? 'repondu' : 'echec', 'reponse' => $reponse];
+        $journal[] = ['wamid' => $m['wamid'], 'action' => $tour['ok'] ? 'repondu' : 'echec', 'reponse' => $reponse, 'client_gros' => $clientGros !== null];
     }
     return $journal;
 }

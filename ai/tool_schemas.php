@@ -99,9 +99,11 @@ function ai_arg_int_optionnel(array $args, string $cle): ?int
     return $valeur > 0 ? $valeur : null;
 }
 
-function ai_build_tool_dispatcher(PDO $pdo): callable
+// $tarifGros: the customer is a registered wholesale customer - product
+// prices become wholesale prices (ai_appliquer_tarif_gros).
+function ai_build_tool_dispatcher(PDO $pdo, bool $tarifGros = false): callable
 {
-    return function (string $name, array $args) use ($pdo): array {
+    $dispatcher = function (string $name, array $args) use ($pdo): array {
         switch ($name) {
             case 'search_products':
                 return ai_search_products(
@@ -133,4 +135,8 @@ function ai_build_tool_dispatcher(PDO $pdo): callable
                 return ['error' => "unknown tool: $name"];
         }
     };
+    if (!$tarifGros) {
+        return $dispatcher;
+    }
+    return fn(string $name, array $args): array => ai_appliquer_tarif_gros($pdo, $dispatcher($name, $args));
 }

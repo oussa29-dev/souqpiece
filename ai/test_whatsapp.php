@@ -70,6 +70,15 @@ $verifier(($j[0]['action'] ?? '') === 'non_texte' && ($envoyes[0][1] ?? '') === 
 $j = wa_traiter_payload($pdo, $config, $payload('wamid.IMG', 'image'), $envoyer, $marquer);
 $verifier(($j[0]['action'] ?? '') === 'doublon' && count($envoyes) === 1, 'meme message relivre par Meta -> ignore', $j);
 
+echo "== Client gros reconnu par son numero\n";
+$pdo->prepare("INSERT INTO client_gros (nom, telephone, code_client, actif) VALUES ('TEST AUTOMATIQUE', ?, 'T1', 1)")->execute([$numeroTest]);
+$c = wa_client_gros($pdo, $numeroTest);
+$verifier(($c['nom'] ?? '') === 'TEST AUTOMATIQUE', 'numero de la liste Clients gros -> client gros', $c);
+$verifier(wa_client_gros($pdo, '213000000002') === null, 'autre numero -> client normal (prix du site)');
+$pdo->prepare('UPDATE client_gros SET actif = 0 WHERE telephone = ?')->execute([$numeroTest]);
+$verifier(wa_client_gros($pdo, $numeroTest) === null, 'client gros desactive -> prix du site');
+$pdo->prepare('DELETE FROM client_gros WHERE telephone = ?')->execute([$numeroTest]);
+
 if ($live) {
     echo "== Tour reel (appel au modele)\n";
     $envoyes = [];

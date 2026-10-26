@@ -560,6 +560,48 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     return $retour;
 }
 
+// Registered wholesale customer (client_gros, WhatsApp channel): every
+// product in a tool result gets the wholesale price (produit.prix_gros = the
+// stock file's PV Gros) in `prix`, tagged tarif "gros". A product without a
+// known wholesale price keeps its retail price, tagged tarif "detail" - the
+// prompt then says the wholesale price is available from the store. The
+// wholesale price is never read for anyone else.
+function ai_appliquer_tarif_gros(PDO $pdo, array $resultat): array
+{
+    $ids = [];
+    array_walk_recursive($resultat, function ($valeur, $cle) use (&$ids) {
+        if ($cle === 'id_produit' && is_scalar($valeur)) {
+            $ids[(int)$valeur] = true;
+        }
+    });
+    if (!$ids) {
+        return $resultat;
+    }
+    $marques = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare("SELECT id_produit, prix_gros FROM produit WHERE id_produit IN ($marques)");
+    $stmt->execute(array_keys($ids));
+    $prixGros = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    $remplacer = function (array $noeud) use (&$remplacer, $prixGros): array {
+        if (isset($noeud['id_produit']) && is_scalar($noeud['id_produit']) && array_key_exists('prix', $noeud) && $noeud['prix'] !== null) {
+            $gros = (int)($prixGros[(int)$noeud['id_produit']] ?? 0);
+            if ($gros > 0) {
+                $noeud['prix'] = $gros;
+                $noeud['tarif'] = 'gros';
+            } else {
+                $noeud['tarif'] = 'detail';
+            }
+        }
+        foreach ($noeud as $cle => $valeur) {
+            if (is_array($valeur)) {
+                $noeud[$cle] = $remplacer($valeur);
+            }
+        }
+        return $noeud;
+    };
+    return $remplacer($resultat);
+}
+
 // The model gets availability, never the quantity: it once turned
 // "stock": "0" into "disponible" (production 18/10, DEMARREUR DJ for the
 // Corolla NDE180), and quantities must not reach customers anyway (prompt
