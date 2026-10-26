@@ -75,6 +75,16 @@ if ($sessionChoisie !== '' && (strpos($sessionChoisie, 'wa:') === 0) !== ($canal
 
 $conditions = [$canal === 'wa' ? "c.id_session LIKE 'wa:%'" : "c.id_session NOT LIKE 'wa:%'"];
 $params = [];
+// Numbers the store does not see (the developer's own test number):
+// 'whatsapp' => ['masquer_conversations' => ['213...']] in ai/config.php.
+$masques = $dev ? [] : array_map(fn($t) => 'wa:' . preg_replace('/\D/', '', (string)$t), (array)($aiConfig['whatsapp']['masquer_conversations'] ?? []));
+if ($masques) {
+    $conditions[] = 'c.id_session NOT IN (' . implode(',', array_fill(0, count($masques), '?')) . ')';
+    $params = array_merge($params, $masques);
+    if (in_array($sessionChoisie, $masques, true)) {
+        $sessionChoisie = '';
+    }
+}
 if ($recherche !== '') {
     // A word of the conversation, a number (any format) or a customer name.
     $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $recherche) . '%';

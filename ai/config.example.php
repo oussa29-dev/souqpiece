@@ -58,6 +58,9 @@ return [
         'graph_version' => 'v25.0',
         'site_url' => 'https://souqpieceba.com',   // product links in replies
         'max_per_number_per_day' => 100,  // safety cap per customer number
+        // Hidden from the store in Dashboard > Conversations (still shown
+        // with the developer password): e.g. the developer's test number.
+        'masquer_conversations' => [],    // ['213XXXXXXXXX']
     ],
 
     'gemini' => [
