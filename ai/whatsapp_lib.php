@@ -177,7 +177,10 @@ function wa_traiter_payload(PDO $pdo, array $config, array $payload, callable $e
         }
 
         $texte = mb_substr($m['texte'], 0, (int)($config['max_message_length'] ?? 1000));
-        $clientGros = wa_client_gros($pdo, $m['de']);
+        // Wholesale prices only once the store has switched them on
+        // ('tarif_gros' in ai/config.php) - until then everyone gets the
+        // retail price, wholesale customers included.
+        $clientGros = !empty($wa['tarif_gros']) ? wa_client_gros($pdo, $m['de']) : null;
         $tour = ai_traiter_tour($pdo, $config, $idSession, $texte, function () use ($envoyer, $m) {
             $envoyer($m['de'], AI_MESSAGE_INDISPONIBLE);
         }, $clientGros);
