@@ -58,8 +58,9 @@ return [
         'graph_version' => 'v25.0',
         'site_url' => 'https://souqpieceba.com',   // product links in replies
         'max_per_number_per_day' => 100,  // safety cap per customer number
-        // Wholesale price for the numbers in Dashboard > Clients gros. Off =
-        // everyone gets the retail price.
+        // Wholesale price: false = nobody, ['213XXXXXXXXX'] = only these test
+        // numbers (developer, before delivery), true = every active number
+        // of Dashboard > Clients gros.
         'tarif_gros' => false,
         // Hidden from the store in Dashboard > Conversations (still shown
         // with the developer password): e.g. the developer's test number.

@@ -139,6 +139,23 @@ function wa_client_gros(PDO $pdo, string $telephone): ?array
     return $client ?: null;
 }
 
+// Who gets wholesale prices, per 'tarif_gros' in ai/config.php:
+// - absent/false: nobody (everyone gets the retail price);
+// - a list of numbers: only those (the developer's tests before delivery) -
+//   they need not be in Clients gros, so the store never sees a test entry;
+// - true: every active number of Dashboard > Clients gros (delivery).
+function wa_client_gros_tarif(PDO $pdo, array $wa, string $telephone): ?array
+{
+    $tarif = $wa['tarif_gros'] ?? false;
+    if ($tarif === true) {
+        return wa_client_gros($pdo, $telephone);
+    }
+    if (is_array($tarif) && in_array($telephone, array_map(fn($t) => preg_replace('/\D/', '', (string)$t), $tarif), true)) {
+        return wa_client_gros($pdo, $telephone) ?? ['id_client_gros' => 0, 'nom' => 'Test développeur', 'code_client' => 'DEV'];
+    }
+    return null;
+}
+
 // Handles every customer message of one webhook payload. $envoyer(to, text)
 // sends a reply; $marquerLu(wamid) marks the message as read (both injected
 // so tests run without Meta). Returns what was done, for tests and logs.
@@ -177,10 +194,7 @@ function wa_traiter_payload(PDO $pdo, array $config, array $payload, callable $e
         }
 
         $texte = mb_substr($m['texte'], 0, (int)($config['max_message_length'] ?? 1000));
-        // Wholesale prices only once the store has switched them on
-        // ('tarif_gros' in ai/config.php) - until then everyone gets the
-        // retail price, wholesale customers included.
-        $clientGros = !empty($wa['tarif_gros']) ? wa_client_gros($pdo, $m['de']) : null;
+        $clientGros = wa_client_gros_tarif($pdo, $wa, $m['de']);
         $tour = ai_traiter_tour($pdo, $config, $idSession, $texte, function () use ($envoyer, $m) {
             $envoyer($m['de'], AI_MESSAGE_INDISPONIBLE);
         }, $clientGros);
