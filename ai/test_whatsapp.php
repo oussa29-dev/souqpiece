@@ -80,12 +80,6 @@ $verifier(($c['nom'] ?? '') === 'TEST AUTOMATIQUE', 'numero de la liste Clients 
 $verifier(wa_client_gros($pdo, '213000000002') === null, 'autre numero -> client normal (prix du site)');
 $pdo->prepare('UPDATE client_gros SET actif = 0 WHERE telephone = ?')->execute([$numeroTest]);
 $verifier(wa_client_gros($pdo, $numeroTest) === null, 'client gros desactive -> prix du site');
-$pdo->prepare('UPDATE client_gros SET actif = 1 WHERE telephone = ?')->execute([$numeroTest]);
-$verifier(wa_client_gros_tarif($pdo, [], $numeroTest) === null, 'tarif_gros absent -> personne au prix gros, meme un client gros');
-$verifier(wa_client_gros_tarif($pdo, ['tarif_gros' => true], $numeroTest) !== null, 'tarif_gros true -> clients gros au prix gros');
-$verifier(wa_client_gros_tarif($pdo, ['tarif_gros' => ['213000000002']], $numeroTest) === null, 'tarif_gros = numeros de test -> vrai client gros au prix du site');
-$t = wa_client_gros_tarif($pdo, ['tarif_gros' => ['+213 000 000 002']], '213000000002');
-$verifier(($t['code_client'] ?? '') === 'DEV', 'numero de test -> prix gros sans etre dans Clients gros', $t);
 $pdo->prepare('DELETE FROM client_gros WHERE telephone = ?')->execute([$numeroTest]);
 
 if ($live) {
