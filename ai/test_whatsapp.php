@@ -81,6 +81,19 @@ $verifier(wa_client_gros($pdo, '213000000002') === null, 'autre numero -> client
 $pdo->prepare('UPDATE client_gros SET actif = 0 WHERE telephone = ?')->execute([$numeroTest]);
 $verifier(wa_client_gros($pdo, $numeroTest) === null, 'client gros desactive -> prix du site');
 $pdo->prepare('DELETE FROM client_gros WHERE telephone = ?')->execute([$numeroTest]);
+$avant = $pdo->query("SELECT valeur FROM ai_reglage WHERE cle = 'tarif_gros'")->fetchColumn();
+$regler = function ($valeur) use ($pdo) {
+    $valeur === false
+        ? $pdo->exec("DELETE FROM ai_reglage WHERE cle = 'tarif_gros'")
+        : $pdo->prepare("REPLACE INTO ai_reglage (cle, valeur) VALUES ('tarif_gros', ?)")->execute([$valeur]);
+};
+$regler(false);
+$verifier(!wa_tarif_gros_actif($pdo), 'prix gros WhatsApp desactive par defaut (aucun reglage)');
+$regler('1');
+$verifier(wa_tarif_gros_actif($pdo), 'bouton active -> prix gros pour les clients gros');
+$regler('0');
+$verifier(!wa_tarif_gros_actif($pdo), 'bouton desactive -> prix du site pour tous');
+$regler($avant);
 
 if ($live) {
     echo "== Tour reel (appel au modele)\n";

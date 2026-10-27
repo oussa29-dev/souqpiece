@@ -60,6 +60,25 @@ require_once('database.php');
 require_once('include/telephone.php');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
+// Wholesale prices on WhatsApp (ai/whatsapp_lib.php wa_tarif_gros_actif):
+// switched from here, developer view only - the store does not see it.
+$tarifGros = null; // null = table ai_reglage missing (migration not run)
+if ($dev) {
+    if (empty($_SESSION['jeton_dev'])) {
+        $_SESSION['jeton_dev'] = bin2hex(random_bytes(16));
+    }
+    try {
+        if (isset($_POST['tarif_gros']) && hash_equals($_SESSION['jeton_dev'], (string)($_POST['jeton'] ?? ''))) {
+            $pdo->prepare("REPLACE INTO ai_reglage (cle, valeur) VALUES ('tarif_gros', ?)")->execute([$_POST['tarif_gros'] === '1' ? '1' : '0']);
+            header('location:ai-conversations.php?' . http_build_query(array_diff_key($_GET, ['dev' => 1])));
+            exit;
+        }
+        $tarifGros = $pdo->query("SELECT valeur FROM ai_reglage WHERE cle = 'tarif_gros'")->fetchColumn() === '1';
+    } catch (PDOException $e) {
+        $tarifGros = null;
+    }
+}
+
 // WhatsApp sessions are "wa:<number>" (ai/whatsapp_lib.php): one per
 // customer, for good. The website's are random ids, one per visit.
 $canal = $dev && ($_GET['canal'] ?? '') === 'site' ? 'site' : 'wa';
@@ -279,6 +298,10 @@ $clientChoisi = $clients[$telChoisi] ?? [];
         .aic-filtres a.canal{background:#dfe7f5}
         .aic-filtres a.canal.actif{background:#0b3d91;color:#fff}
         .aic-filtres form{display:flex;gap:6px;margin-left:auto}
+        .aic-filtres form.aic-tarif,.aic-tarif{margin-left:0;display:flex;gap:8px;align-items:center;font-size:13px;padding:4px 6px 4px 10px;border-radius:8px}
+        .aic-tarif.on{background:#e3f6e3;color:#17661a}
+        .aic-tarif.off{background:#f1f2f4;color:#555}
+        .aic-filtres .aic-tarif button{background:#0b3d91;padding:5px 10px}
         .aic-filtres input[type=text]{padding:7px 10px;border:1px solid #bbb;border-radius:8px;min-width:220px}
         .aic-filtres button{padding:7px 12px;border:none;border-radius:8px;background:rgb(24,185,24);color:#fff;cursor:pointer}
         .aic-liste{border:1px solid #d9dde3;border-radius:10px;overflow:hidden;background:#fff}
@@ -334,7 +357,19 @@ $clientChoisi = $clients[$telChoisi] ?? [];
                 <a class="<?= $cle === $periode ? 'actif' : '' ?>" href="<?= h($lienFiltres(['periode' => $cle, 'page' => 1, 's' => null])) ?>"><?= h($libelle) ?></a>
             <?php endforeach; ?>
             <span style="font-size:14px;color:#555"><?= $totalSessions ?> <?= $canal === 'wa' ? 'client(s)' : 'conversation(s)' ?></span>
-            <?php if ($dev): ?><a href="?sortir=1" title="Quitter l'accès développeur">Verrouiller</a><?php endif; ?>
+            <?php if ($dev): ?>
+                <a href="?sortir=1" title="Quitter l'accès développeur">Verrouiller</a>
+                <?php if ($tarifGros === null): ?>
+                    <span class="aic-tarif off">Prix gros WhatsApp : table ai_reglage absente (php dashboard/ai_reglage_migration.php --apply)</span>
+                <?php else: ?>
+                    <form method="post" class="aic-tarif <?= $tarifGros ? 'on' : 'off' ?>" onsubmit="return confirm(<?= h(json_encode($tarifGros ? 'Désactiver les prix gros sur WhatsApp ? Tout le monde aura le prix du site.' : 'Activer les prix gros sur WhatsApp pour les numéros de Clients gros ?')) ?>)">
+                        <input type="hidden" name="jeton" value="<?= h($_SESSION['jeton_dev']) ?>">
+                        <input type="hidden" name="tarif_gros" value="<?= $tarifGros ? '0' : '1' ?>">
+                        <span>Prix gros WhatsApp : <b><?= $tarifGros ? 'ACTIVÉ' : 'désactivé' ?></b></span>
+                        <button type="submit"><?= $tarifGros ? 'Désactiver' : 'Activer' ?></button>
+                    </form>
+                <?php endif; ?>
+            <?php endif; ?>
             <form method="get">
                 <?php if ($canal === 'site'): ?><input type="hidden" name="canal" value="site"><?php endif; ?>
                 <input type="hidden" name="periode" value="<?= h($periode) ?>">

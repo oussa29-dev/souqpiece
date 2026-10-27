@@ -139,6 +139,18 @@ function wa_client_gros(PDO $pdo, string $telephone): ?array
     return $client ?: null;
 }
 
+// Wholesale prices switched on? Button in the developer view of Dashboard >
+// Conversations (table ai_reglage, key 'tarif_gros'). Off when the row or
+// the table is missing: everyone gets the retail price.
+function wa_tarif_gros_actif(PDO $pdo): bool
+{
+    try {
+        return $pdo->query("SELECT valeur FROM ai_reglage WHERE cle = 'tarif_gros'")->fetchColumn() === '1';
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
 // Handles every customer message of one webhook payload. $envoyer(to, text)
 // sends a reply; $marquerLu(wamid) marks the message as read (both injected
 // so tests run without Meta). Returns what was done, for tests and logs.
@@ -177,10 +189,9 @@ function wa_traiter_payload(PDO $pdo, array $config, array $payload, callable $e
         }
 
         $texte = mb_substr($m['texte'], 0, (int)($config['max_message_length'] ?? 1000));
-        // Wholesale prices only once the store has switched them on
-        // ('tarif_gros' in ai/config.php) - until then everyone gets the
-        // retail price, wholesale customers included.
-        $clientGros = !empty($wa['tarif_gros']) ? wa_client_gros($pdo, $m['de']) : null;
+        // Until wholesale prices are switched on, everyone gets the retail
+        // price, wholesale customers included.
+        $clientGros = wa_tarif_gros_actif($pdo) ? wa_client_gros($pdo, $m['de']) : null;
         $tour = ai_traiter_tour($pdo, $config, $idSession, $texte, function () use ($envoyer, $m) {
             $envoyer($m['de'], AI_MESSAGE_INDISPONIBLE);
         }, $clientGros);
