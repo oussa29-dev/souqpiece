@@ -219,6 +219,13 @@ check('known wilaya + bureau resolves', $r !== null && $r['prix'] > 0, $r);
 $r = ai_get_delivery_price($pdo, 'WilayaDoesNotExist', 'domicile');
 check('unknown wilaya returns null, not error', $r === null);
 
+echo "\n== Reference variants (store owner 28/10: 11044-vk505 gave 1 product of 10)\n";
+$lignes = array_merge(...array_values(ai_lookup_by_reference($pdo, '11044-vk505')));
+$ids = array_column($lignes, 'id_produit');
+check('every stored variant of the reference comes back, not just the exact one', count($ids) >= 5, array_column($lignes, 'reference'));
+check('each product once', count($ids) === count(array_unique($ids)), $ids);
+check('available products first', ($lignes[0]['disponible'] ?? false) === true, $lignes[0] ?? null);
+
 echo "\n== Wholesale price (client_gros)\n";
 require_once __DIR__ . '/../dashboard/include/prix_gros.php';
 check('estimate: 21000 DA retail -> 17500 PV Gros (x1.2)', prix_gros_estimer(21000) === 17500, prix_gros_estimer(21000));

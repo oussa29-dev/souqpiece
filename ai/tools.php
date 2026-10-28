@@ -297,7 +297,8 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
             produit.id_produit, produit.libelle, produit.marquepiece,
             produit.prix, produit.stock, produit.img1,
             pvd.id_voiture AS voiture_id,
-            v.modele AS vehicule_modele, m.libelle AS vehicule_marque, c.libelle AS categorie_nom
+            SUBSTRING_INDEX(GROUP_CONCAT(DISTINCT v.modele ORDER BY v.modele SEPARATOR \' / \'), \' / \', 3) AS vehicule_modele,
+            MAX(m.libelle) AS vehicule_marque, c.libelle AS categorie_nom
         FROM produit
         LEFT JOIN pvd ON produit.id_produit = pvd.id_produit
         LEFT JOIN voiture v ON pvd.id_voiture = v.id_voiture
@@ -363,26 +364,29 @@ function ai_lookup_by_reference(PDO $pdo, string $reference): array
                JOIN produit p ON p.id_produit = r.id_produit';
     $order = ' ORDER BY p.prix > 0 DESC, p.stock DESC LIMIT 20';
 
-    $stmt = $pdo->prepare($select . ' WHERE r.reference = ?' . $order);
-    $stmt->execute([$reference]);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    if (empty($rows)) {
-        $stmt = $pdo->prepare($select . ' WHERE r.reference LIKE ?' . $order);
-        $stmt->execute(['%' . ai_escape_like($reference) . '%']);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    // Same reference typed without its dashes/spaces/dots ("4351252020" for
-    // "43512-52020"): compare letters and digits only. "Contains", not
-    // equality - many stored references combine several codes
-    // ("34416/43512-52020").
+    // Exact, contained, and typed without its dashes/spaces/dots
+    // ("4351252020" for "43512-52020"), all together: the same part is stored
+    // under variants of its reference ("11044-VK505", "11044-VK505/.",
+    // "11044-VK505-OSH", "CH0599E/11044-VK505*") - store owner, 28/10, got
+    // the single exact match (out of stock) and none of the 9 others.
+    // "Contains", not equality - many stored references combine several
+    // codes ("34416/43512-52020"). Available first, exact match first among
+    // equals, each product once.
     $compacte = preg_replace('/[^A-Z0-9]/', '', mb_strtoupper($reference));
-    if (empty($rows) && strlen($compacte) >= 5) {
-        $stmt = $pdo->prepare($select . " WHERE REGEXP_REPLACE(UPPER(r.reference), '[^A-Z0-9]', '') LIKE ?" . $order);
-        $stmt->execute(['%' . $compacte . '%']);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $conditions = ['r.reference = ?', 'r.reference LIKE ?'];
+    $params = [$reference, '%' . ai_escape_like($reference) . '%'];
+    if (strlen($compacte) >= 5) {
+        $conditions[] = "REGEXP_REPLACE(UPPER(r.reference), '[^A-Z0-9]', '') LIKE ?";
+        $params[] = '%' . $compacte . '%';
     }
+    $stmt = $pdo->prepare($select . ' WHERE ' . implode(' OR ', $conditions)
+        . ' ORDER BY p.prix > 0 DESC, p.stock DESC, r.reference = ? DESC LIMIT 40');
+    $stmt->execute(array_merge($params, [$reference]));
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $rows[$row['id_produit']] = $rows[$row['id_produit']] ?? $row;
+    }
+    $rows = array_slice(array_values($rows), 0, 20);
 
     // Store owner, 07/10: "0C380-16400" was answered "not found" while the
     // catalog has 16400-0C381-AT / -MT (radiator Revo). The halves were
