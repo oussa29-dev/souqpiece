@@ -226,6 +226,15 @@ check('every stored variant of the reference comes back, not just the exact one'
 check('each product once', count($ids) === count(array_unique($ids)), $ids);
 check('available products first', ($lignes[0]['disponible'] ?? false) === true, $lignes[0] ?? null);
 
+echo "\n== \"Pochette de joints rav4\" (store owner 28/10)\n";
+$r = ai_search_products($pdo, 'pochette de joints', 155, null, 10);
+$libelles = array_column($r, 'libelle');
+check('plural and "de" no longer block the search: pochettes found for the RAV4 ALA30', count($r) >= 3, $libelles);
+check('only pochettes (POCHETTE / POCHET), no other seals', !array_filter($libelles, fn($l) => stripos($l, 'POCHET') === false), $libelles);
+check('no pochette naming another RAV4 chassis (SXA1, ACA20)', !array_filter($libelles, fn($l) => preg_match('/SXA1|ACA20/', $l)), $libelles);
+check('engine codes are not taken for another chassis (TD42/TB45 part kept for the Patrol)', ai_codes_chassis('PLAQUETTE DE FREIN PATROL TD42 /TB45') === [], ai_codes_chassis('PLAQUETTE DE FREIN PATROL TD42 /TB45'));
+check('references are never shortened', ai_expand_term_variants('11044-VK505') === ['11044-VK505'], ai_expand_term_variants('11044-VK505'));
+
 echo "\n== Wholesale price (client_gros)\n";
 require_once __DIR__ . '/../dashboard/include/prix_gros.php';
 check('estimate: 21000 DA retail -> 17500 PV Gros (x1.2)', prix_gros_estimer(21000) === 17500, prix_gros_estimer(21000));

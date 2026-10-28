@@ -86,7 +86,38 @@ function ai_expand_term_variants(string $term, ?PDO $pdo = null): array
         }
     }
 
-    return array_values(array_unique($variants));
+    // Plural and short spelling (store owner 28/10, "pochette de joints rav4"
+    // found nothing: the catalog writes JOINT and POCHET): a word in letters
+    // also matches without its final S/X, and from 7 letters without its
+    // last two letters (POCHETTE -> POCHET, PLAQUETTES -> PLAQUET).
+    // References and codes (any digit) are left as typed.
+    foreach ($variants as $variant) {
+        $mot = strtoupper(trim($variant));
+        if (!preg_match('/^[A-Z]+$/', $mot)) {
+            continue;
+        }
+        if (strlen($mot) >= 5 && preg_match('/[^S][SX]$/', $mot)) {
+            $mot = substr($mot, 0, -1);
+            $variants[] = $mot;
+        }
+        if (strlen($mot) >= 7) {
+            $variants[] = substr($mot, 0, -2);
+        }
+    }
+
+    // Searched as "contains" and "starts with": a variant beginning with
+    // another one finds nothing more (DEMARREUR once DEMARRE is there) and
+    // only slows the search down.
+    $variants = array_values(array_unique($variants));
+    $majuscules = array_map('mb_strtoupper', $variants);
+    return array_values(array_filter($variants, function ($v, $i) use ($majuscules) {
+        foreach ($majuscules as $j => $autre) {
+            if ($j !== $i && $autre !== '' && $autre !== $majuscules[$i] && strpos($majuscules[$i], $autre) === 0) {
+                return false;
+            }
+        }
+        return true;
+    }, ARRAY_FILTER_USE_BOTH));
 }
 
 // Last-resort fallback, only called when the alias-expanded exact search
@@ -136,6 +167,13 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     $searchTerm = trim($query);
     $normalized = str_replace(' ', '*', $searchTerm);
     $terms = array_filter(array_map('trim', explode('*', $normalized)));
+    // Linking words are not part names: "pochette de joints" must not
+    // require "DE" in the product, nor "plaquette تاع hilux" "تاع".
+    $motsVides = ['DE', 'DU', 'DES', 'D', 'LA', 'LE', 'LES', 'L', 'POUR', 'ET', 'A', 'AVEC', 'EN', 'SUR', 'تاع', 'ديال', 'نتاع', 'متاع'];
+    $utiles = array_filter($terms, fn($t) => !in_array(mb_strtoupper(trim($t, "'")), $motsVides, true));
+    if ($utiles) {
+        $terms = array_values($utiles);
+    }
     if (empty($terms)) {
         $terms = [$searchTerm];
     }
@@ -307,11 +345,21 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         WHERE ' . implode(' AND ', $conditions) . '
         GROUP BY produit.id_produit
         ORDER BY ' . $orderBy . '
-        LIMIT ' . $limit;
+        LIMIT ' . ($id_voiture !== null ? $limit * 2 : $limit);
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute(array_merge($params, $relevanceParams));
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // A part linked to no vehicle and found by name must not name another
+    // chassis: "POCHET JOINT RAV4 3SFE SXA1" and "... ACA20" were offered for
+    // the RAV4 ALA30 (store owner, 28/10) because they say RAV4.
+    if ($id_voiture !== null) {
+        $codesVehicule = ai_codes_chassis((string)$pdo->query('SELECT modele FROM voiture WHERE id_voiture = ' . (int)$id_voiture)->fetchColumn());
+        $rows = array_values(array_filter($rows, fn($r) => !empty($r['voiture_id'])
+            || !array_diff(ai_codes_chassis((string)$r['libelle']), $codesVehicule)));
+        $rows = array_slice($rows, 0, $limit);
+    }
 
     foreach ($rows as &$row) {
         $row = ai_disponibilite($row);
@@ -324,6 +372,16 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         }
     }
     return $rows;
+}
+
+// Chassis-like codes in a text: 3-4 letters then digits (ALA30, SXA1,
+// ACA20, HZJ80, KZJ120, RAV4). Two-letter codes are left out: those are
+// mostly engines (TD42, TB45, RD28, ZD30) shared by several models - "FREIN
+// PATROL TD42 /TB45" is a Patrol Y61 part.
+function ai_codes_chassis(string $texte): array
+{
+    preg_match_all('/(?<![A-Z0-9])[A-Z]{3,4}[0-9]{1,3}[A-Z]?(?![A-Z0-9])/', strtoupper($texte), $m);
+    return array_values(array_unique($m[0]));
 }
 
 // Words of a vehicle's model name distinctive enough to find unlinked parts
