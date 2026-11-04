@@ -120,6 +120,57 @@ function ai_expand_term_variants(string $term, ?PDO $pdo = null): array
     }, ARRAY_FILTER_USE_BOTH));
 }
 
+// Catalog abbreviations of a term (search_aliases.php), through its spelling
+// group and Arabic translation too ("embriage" -> embrayage -> EMB). Not
+// through ai_expand_term_variants(): it keeps EMBRAYA and drops EMBRAYAGE.
+function ai_abreviations_terme(string $term): array
+{
+    $table = ai_search_abbreviations();
+    $mots = array_merge([$term], ai_arabic_alias_lookup($term) ?? []);
+    foreach ($mots as $mot) {
+        foreach (ai_search_synonym_groups() as $groupe) {
+            if (in_array(ai_normalize_term($mot), $groupe, true)) {
+                $mots = array_merge($mots, $groupe);
+            }
+        }
+    }
+    $abreviations = [];
+    foreach ($mots as $mot) {
+        $mot = ai_normalize_term($mot);
+        foreach ([$mot, preg_replace('/s$/', '', $mot)] as $cle) {
+            $abreviations = array_merge($abreviations, $table[$cle] ?? []);
+        }
+    }
+    return array_values(array_unique($abreviations));
+}
+
+// An abbreviation matches only as a whole word: EMB must not find MEMBRANE
+// or EMBOUT, nor D every "KIT D'EMBRAYAGE" (hence no apostrophe after it).
+function ai_regexp_mot_entier(string $abreviation, bool $auDebut = false): string
+{
+    return ($auDebut ? '^' : '(^|[^A-Za-z0-9])') . preg_quote($abreviation) . "([^A-Za-z0-9']|$)";
+}
+
+// "(col LIKE ? OR col LIKE ? OR col REGEXP ?)" for one search term: its
+// variants as substrings, its catalog abbreviations as whole words. Not the
+// one-letter ones (G, D) in pvd.description: it ends with the part's brand,
+// and "ORG D" made every original part "droite".
+function ai_condition_terme(string $colonne, string $term, PDO $pdo, array &$params, bool $uneLettre = true): string
+{
+    $orParts = [];
+    foreach (ai_expand_term_variants($term, $pdo) as $variant) {
+        $orParts[] = "$colonne LIKE ?";
+        $params[] = '%' . ai_escape_like($variant) . '%';
+    }
+    foreach (ai_abreviations_terme($term) as $abreviation) {
+        if (strlen($abreviation) > 1 || $uneLettre) {
+            $orParts[] = "$colonne REGEXP ?";
+            $params[] = ai_regexp_mot_entier($abreviation);
+        }
+    }
+    return '(' . implode(' OR ', $orParts) . ')';
+}
+
 // Last-resort fallback, only called when the alias-expanded exact search
 // (reference + description + libelle, all variant-expanded) finds nothing.
 // Bounded and cheap on purpose: pre-filters to rows whose libelle starts
@@ -209,12 +260,7 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     $descConditions = [];
     $descParams = [];
     foreach ($terms as $term) {
-        $orParts = [];
-        foreach (ai_expand_term_variants($term, $pdo) as $variant) {
-            $orParts[] = 'description LIKE ?';
-            $descParams[] = '%' . ai_escape_like($variant) . '%';
-        }
-        $descConditions[] = '(' . implode(' OR ', $orParts) . ')';
+        $descConditions[] = ai_condition_terme('description', $term, $pdo, $descParams, false);
     }
     $sqlDesc = $pdo->prepare('SELECT DISTINCT pvd.id_produit FROM pvd WHERE ' . implode(' AND ', $descConditions));
     $sqlDesc->execute($descParams);
@@ -225,12 +271,7 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     $libConditions = [];
     $libParams = [];
     foreach ($terms as $term) {
-        $orParts = [];
-        foreach (ai_expand_term_variants($term, $pdo) as $variant) {
-            $orParts[] = 'libelle LIKE ?';
-            $libParams[] = '%' . ai_escape_like($variant) . '%';
-        }
-        $libConditions[] = '(' . implode(' OR ', $orParts) . ')';
+        $libConditions[] = ai_condition_terme('libelle', $term, $pdo, $libParams);
     }
     $sqlLib = $pdo->prepare('SELECT id_produit FROM produit WHERE ' . implode(' AND ', $libConditions));
     $sqlLib->execute($libParams);
@@ -318,10 +359,11 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         $debut[] = 'produit.libelle LIKE ?';
         $relevanceParams[] = ai_escape_like($variant) . '%';
     }
-    foreach (ai_expand_term_variants(reset($terms), $pdo) as $variant) {
-        $contient[] = 'produit.libelle LIKE ?';
-        $relevanceParams[] = '%' . ai_escape_like($variant) . '%';
+    foreach (ai_abreviations_terme(reset($terms)) as $abreviation) {
+        $debut[] = 'produit.libelle REGEXP ?';
+        $relevanceParams[] = ai_regexp_mot_entier($abreviation, true);
     }
+    $contient[] = ai_condition_terme('produit.libelle', reset($terms), $pdo, $relevanceParams);
     $relevance = 'CASE WHEN ' . implode(' OR ', $debut) . ' THEN 0 WHEN ' . implode(' OR ', $contient) . ' THEN 1 ELSE 2 END';
 
     // With a vehicle, parts linked to it come before parts only naming it.
@@ -345,7 +387,7 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         WHERE ' . implode(' AND ', $conditions) . '
         GROUP BY produit.id_produit
         ORDER BY ' . $orderBy . '
-        LIMIT ' . ($id_voiture !== null ? $limit * 2 : $limit);
+        LIMIT ' . ($limit * 2);
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute(array_merge($params, $relevanceParams));
@@ -358,8 +400,8 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         $codesVehicule = ai_codes_chassis((string)$pdo->query('SELECT modele FROM voiture WHERE id_voiture = ' . (int)$id_voiture)->fetchColumn());
         $rows = array_values(array_filter($rows, fn($r) => !empty($r['voiture_id'])
             || !array_diff(ai_codes_chassis((string)$r['libelle']), $codesVehicule)));
-        $rows = array_slice($rows, 0, $limit);
     }
+    $rows = array_slice(ai_sans_doublons($pdo, $rows), 0, $limit);
 
     foreach ($rows as &$row) {
         $row = ai_disponibilite($row);
@@ -372,6 +414,34 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         }
     }
     return $rows;
+}
+
+// Each catalog duplicate once - same name, same part brand, same references
+// (520 such groups in Rapport catalogue > Doublons): "KIT EMB MAZDA BT50/FORD
+// T6 (2PCS) - LUK" was listed twice, available and not. Rows come ordered
+// available first, so the first copy kept is the available one.
+function ai_sans_doublons(PDO $pdo, array $rows): array
+{
+    $ids = array_values(array_unique(array_filter(array_map(fn($r) => (int)($r['id_produit'] ?? 0), $rows))));
+    if (count($ids) < 2) {
+        return $rows;
+    }
+    $stmt = $pdo->prepare("SELECT id_produit, GROUP_CONCAT(DISTINCT REGEXP_REPLACE(UPPER(reference), '[^A-Z0-9]', '') ORDER BY REGEXP_REPLACE(UPPER(reference), '[^A-Z0-9]', '')) FROM reference WHERE id_produit IN (" . implode(',', array_fill(0, count($ids), '?')) . ') GROUP BY id_produit');
+    $stmt->execute($ids);
+    $references = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    $vus = [];
+    $resultat = [];
+    foreach ($rows as $row) {
+        $id = (int)($row['id_produit'] ?? 0);
+        $cle = mb_strtoupper(preg_replace('/\s+/u', ' ', trim((string)$row['libelle']))) . '|'
+            . mb_strtoupper(preg_replace('/\s+/u', ' ', trim((string)$row['marquepiece']))) . '|'
+            . ($references[$id] ?? "#$id");
+        if (!isset($vus[$cle])) {
+            $vus[$cle] = true;
+            $resultat[] = $row;
+        }
+    }
+    return $resultat;
 }
 
 // Chassis-like codes in a text: 3-4 letters then digits (ALA30, SXA1,
@@ -462,6 +532,15 @@ function ai_lookup_by_reference(PDO $pdo, string $reference): array
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    // Then by designation: the same part under other references (other
+    // brands), often the one in stock - store owner, 04/11: customers asking
+    // by reference were told "not in stock" while the shop has it.
+    if ($rows) {
+        $exclus = array_column($rows, 'id_produit');
+        $rows = ai_sans_doublons($pdo, $rows);
+        $rows = array_merge($rows, ai_equivalents_designation($pdo, $rows, $exclus));
+    }
+
     // 2. One character off in one part (any order for the others), only for
     // references long enough to be distinctive. Returned flagged - a close
     // reference is a suggestion to confirm, never presented as the same part.
@@ -519,6 +598,62 @@ function ai_lookup_by_reference(PDO $pdo, string $reference): array
         $grouped[$brand][] = $row;
     }
     return $grouped;
+}
+
+// The same part under other references, the two-step search the store owner
+// asked for (04/11: customers asking by reference were told "not in stock"
+// while the shop has it): reference -> the designation of what it found ->
+// back to the references, to narrow. A stored reference often lists the
+// part's other codes ("CH0599E/11044-VK505*", "S6104/83530-10010"); a
+// product carrying one of those codes, under the same kind of designation
+// (same first word), is the same part from another brand. The designation
+// alone is not enough - "MANO HB" is also a Nissan part, and 11044-VK500 to
+// VK504 are other head gaskets. Available first, at most 8, flagged, with
+// their reference in the name (the model leaves a separate field out).
+// $exclus: every product the reference itself found, duplicates included.
+function ai_equivalents_designation(PDO $pdo, array $trouves, array $exclus): array
+{
+    $codes = [];
+    $premiersMots = [];
+    foreach ($trouves as $r) {
+        foreach (preg_split('/[\/,;*()\s]+/', mb_strtoupper((string)$r['reference'])) as $partie) {
+            $code = preg_replace('/[^A-Z0-9]/', '', $partie);
+            if (strlen($code) >= 6 && preg_match('/[0-9]/', $code)) {
+                $codes[$code] = true;
+            }
+        }
+        $mot = preg_split('/[^A-Z]+/', mb_strtoupper(ai_normalize_term((string)$r['libelle'])), -1, PREG_SPLIT_NO_EMPTY)[0] ?? '';
+        if (strlen($mot) >= 3) {
+            // POCHETTE and POCHET, PLAQUETTE and PLAQUET: compared on 5 letters.
+            $premiersMots[substr($mot, 0, 5)] = true;
+        }
+    }
+    $exclus = array_values(array_unique(array_map('intval', $exclus)));
+    if (!$codes || !$premiersMots || !$exclus) {
+        return [];
+    }
+    $codes = array_slice(array_keys($codes), 0, 15);
+
+    $sql = "SELECT MIN(r.reference) AS reference, p.id_produit, p.libelle, p.marquepiece, p.prix, p.stock
+            FROM produit p
+            JOIN reference r ON r.id_produit = p.id_produit
+            WHERE (" . implode(' OR ', array_fill(0, count($codes), "REGEXP_REPLACE(UPPER(r.reference), '[^A-Z0-9]', '') LIKE ?")) . ")
+              AND p.id_produit NOT IN (" . implode(',', array_fill(0, count($exclus), '?')) . ")
+              AND p.prix > 0
+            GROUP BY p.id_produit
+            ORDER BY p.stock DESC, p.id_produit
+            LIMIT 40";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(array_merge(array_map(fn($c) => "%$c%", $codes), $exclus));
+    $equivalents = array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), function ($r) use ($premiersMots) {
+        $mot = preg_split('/[^A-Z]+/', mb_strtoupper(ai_normalize_term((string)$r['libelle'])), -1, PREG_SPLIT_NO_EMPTY)[0] ?? '';
+        return isset($premiersMots[substr($mot, 0, 5)]);
+    });
+
+    return array_map(fn($r) => array_merge($r, [
+        'meme_designation' => true,
+        'libelle' => trim($r['libelle']) . ' (réf. ' . trim($r['reference']) . ')',
+    ]), array_slice(ai_sans_doublons($pdo, array_values($equivalents)), 0, 8));
 }
 
 // Returns ['unique' => bool, 'matches' => [...]]. `unique` is the

@@ -26,7 +26,7 @@ function ai_tool_schemas(): array
         ],
         [
             'name' => 'lookup_by_reference',
-            'description' => 'Look up an exact OEM/manufacturer reference number. Returns all matching products grouped by brand (marquepiece), since the same reference number is often sold under several different brands at different prices. Dashes, spaces and the order of the parts are optional. When nothing matches exactly, rows that differ by one character come back with reference_proche=true: offer them as a close reference to confirm, never as the exact part. A row with prix_non_disponible=true exists in the catalog but has no online price and no link: tell the customer the part is listed and to contact the store for the price - never say it was not found.',
+            'description' => 'Look up an exact OEM/manufacturer reference number. Returns all matching products grouped by brand (marquepiece), since the same reference number is often sold under several different brands at different prices. Dashes, spaces and the order of the parts are optional. When nothing matches exactly, rows that differ by one character come back with reference_proche=true: offer them as a close reference to confirm, never as the exact part. Rows with meme_designation=true are the same kind of part under ANOTHER reference that shares a cross-reference code with the ones found (another brand, often the one in stock): list them after the exact matches as an equivalent to confirm by its reference (shown in the name), never as the reference the customer typed - and when every exact match is unavailable, say so and offer the available equivalents. A row with prix_non_disponible=true exists in the catalog but has no online price and no link: tell the customer the part is listed and to contact the store for the price - never say it was not found.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -118,7 +118,14 @@ function ai_build_tool_dispatcher(PDO $pdo, bool $tarifGros = false): callable
             case 'lookup_by_reference':
                 return ai_lookup_by_reference($pdo, (string)($args['reference'] ?? ''));
             case 'resolve_vehicle':
-                return ai_resolve_vehicle($pdo, (string)($args['free_text'] ?? ''));
+                $r = ai_resolve_vehicle($pdo, (string)($args['free_text'] ?? ''));
+                if (empty($r['unique']) && !empty($r['matches'])) {
+                    // Rule 9 in the prompt alone was skipped (04/11: "kit
+                    // embrayage t6" got the Ranger/BT50 question, while the
+                    // search finds the T6 kit in stock).
+                    $r['next_step'] = 'Several vehicles match. If the customer named a part, do NOT ask yet: call search_products now, without id_voiture, with the part words plus the customer\'s vehicle words as query. Ask the customer to choose only if that search returns nothing relevant.';
+                }
+                return $r;
             case 'get_product':
                 $r = ai_get_product(
                     $pdo,

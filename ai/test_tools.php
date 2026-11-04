@@ -235,6 +235,34 @@ check('no pochette naming another RAV4 chassis (SXA1, ACA20)', !array_filter($li
 check('engine codes are not taken for another chassis (TD42/TB45 part kept for the Patrol)', ai_codes_chassis('PLAQUETTE DE FREIN PATROL TD42 /TB45') === [], ai_codes_chassis('PLAQUETTE DE FREIN PATROL TD42 /TB45'));
 check('references are never shortened', ai_expand_term_variants('11044-VK505') === ['11044-VK505'], ai_expand_term_variants('11044-VK505'));
 
+echo "\n== Catalog abbreviations (store owner 04/11: \"kit embrayage T6\" missed KIT EMB ... T6)\n";
+$r = ai_search_products($pdo, 'kit embrayage t6', null, null, 8);
+$libelles = array_column($r, 'libelle');
+check('EMBRAYAGE also finds the catalog\'s "KIT EMB ... T6"', (bool)array_filter($libelles, fn($l) => preg_match('/\bEMB\b.*T6/', $l)), $libelles);
+check('same in Arabic (كيت امبرياج t6)', (bool)array_filter(array_column(ai_search_products($pdo, 'كيت امبرياج t6', null, null, 8), 'libelle'), fn($l) => preg_match('/\bEMB\b/', $l)));
+$r = ai_search_products($pdo, 'plaquette avant', null, null, 8);
+check('AVANT finds "PLAQUETTE ... AV" (AV 1934 times in the catalog, AVANT once)', count($r) >= 5, array_column($r, 'libelle'));
+$r = ai_search_products($pdo, 'embrayage', null, null, 20);
+check('an abbreviation matches whole words only (EMB never finds MEMBRANE, EMBOUT)', !array_filter(array_column($r, 'libelle'), fn($l) => preg_match('/MEMBRANE|EMBOUT|EMBELL/i', $l)), array_column($r, 'libelle'));
+check('a one-letter abbreviation never matches "D\'" (droite is not KIT D\'EMBRAYAGE)', !preg_match('/' . str_replace('/', '\/', ai_regexp_mot_entier('D')) . '/', "KIT D'EMBRAYAGE"));
+$doublons = $pdo->query("SELECT MIN(p.libelle) FROM reference r JOIN produit p ON p.id_produit = r.id_produit WHERE p.prix > 0 GROUP BY TRIM(r.reference), TRIM(p.marquepiece), TRIM(p.libelle) HAVING COUNT(DISTINCT p.id_produit) > 1 AND COUNT(DISTINCT p.prix) = 1 LIMIT 1")->fetchColumn();
+if ($doublons !== false) {
+    $r = ai_search_products($pdo, $doublons, null, null, 20);
+    $cles = array_map(fn($x) => $x['libelle'] . '|' . $x['marquepiece'] . '|' . $x['prix'], $r);
+    check("catalog duplicates listed once (\"$doublons\")", count($cles) === count(array_unique($cles)), $cles);
+}
+
+echo "\n== Reference -> designation -> references (store owner 04/11)\n";
+$lignes = array_merge(...array_values(ai_lookup_by_reference($pdo, 'CH0599E')));
+$equivalents = array_filter($lignes, fn($l) => !empty($l['meme_designation']));
+check('CH0599E (BGA) also brings the same gasket under 11044-VK505 from other brands', count($equivalents) >= 2, array_column($lignes, 'libelle'));
+check('an available equivalent is among them', (bool)array_filter($equivalents, fn($l) => $l['disponible']), array_column($equivalents, 'libelle'));
+check('equivalents carry their own reference in the name', !array_filter($equivalents, fn($l) => strpos($l['libelle'], '(réf. ') === false), array_column($equivalents, 'libelle'));
+$lignes = array_merge(...array_values(ai_lookup_by_reference($pdo, '1460A037')));
+check('a shared designation alone is not enough (1460A037 L200 brings no Nissan MANO HB)', !array_filter($lignes, fn($l) => stripos($l['libelle'], 'A6860') !== false || stripos((string)$l['reference'], 'A6860') !== false), array_column($lignes, 'libelle'));
+$lignes = array_merge(...array_values(ai_lookup_by_reference($pdo, '11044-vk505')));
+check('other head gaskets (11044-VK500..504) are not equivalents of VK505', !array_filter($lignes, fn($l) => preg_match('/VK50[0-4]/', (string)$l['reference']) && stripos((string)$l['reference'], 'VK505') === false), array_column($lignes, 'reference'));
+
 echo "\n== Wholesale price (client_gros)\n";
 require_once __DIR__ . '/../dashboard/include/prix_gros.php';
 check('estimate: 21000 DA retail -> 17500 PV Gros (x1.2)', prix_gros_estimer(21000) === 17500, prix_gros_estimer(21000));

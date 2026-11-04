@@ -56,6 +56,8 @@ function ai_search_arabic_aliases(): array
         'تويوتا' => ['toyota'],
         'نيسان' => ['nissan'],
         'ميتسوبيشي' => ['mitsubishi'],
+        // Store owner, 04/11: "كيت امبرياج تيسيس" (T6 read aloud: Ranger/BT50 T6)
+        'تيسيس' => ['t6'],
     ];
 }
 
@@ -94,5 +96,46 @@ function ai_search_synonym_groups(): array
         ['silentbloc', 'silent', 'selen'],
         ['amortisseur', 'amortiseur'],
         ['frein', 'frien'],
+    ];
+}
+
+// Full word typed by the customer -> the abbreviation(s) the catalog writes
+// instead, matched as a whole word (ai_regexp_mot_entier() in tools.php).
+// One-way, unlike the groups above: an abbreviation typed by a customer
+// already works as a substring. Store owner, 04/11: "kit embrayage T6" missed
+// "KIT EMB MAZDA BT50/FORD T6 (2PCS)", the one in stock. Counted in
+// produit.libelle on 2026-11-04: AV 1934 vs AVANT 1, AR 1672 vs ARRIERE 0,
+// SUP 694 vs SUPERIEUR 2, INF 721 vs INFERIEUR 3, G 1165 vs GAUCHE 22,
+// D 3029 vs DROITE 21, EMB 475, SUSP 357, CLIM 334, RAD 71, ALT 26, TEMP 24,
+// ADM 14, VILB 13, SOUP 7, SUPP 5, CHAUF 5, ECHAPE 5, HYDRO 5, DIST 5.
+// Not SUP for support (SUP is superieur), nor ROU (ROUGE, ROULAT).
+function ai_search_abbreviations(): array
+{
+    return [
+        'avant' => ['AV'],
+        'arriere' => ['AR', 'ARR'],
+        'ariere' => ['AR', 'ARR'],
+        'gauche' => ['G'],
+        'droite' => ['D', 'DR'],
+        'droit' => ['D', 'DR'],
+        'superieur' => ['SUP'],
+        'superieure' => ['SUP'],
+        'inferieur' => ['INF'],
+        'inferieure' => ['INF'],
+        'embrayage' => ['EMB', 'EMBR'],
+        'suspension' => ['SUSP'],
+        'climatiseur' => ['CLIM'],
+        'climatisation' => ['CLIM'],
+        'radiateur' => ['RAD'],
+        'alternateur' => ['ALT', 'ALTE', 'ALTER'],
+        'temperature' => ['TEMP'],
+        'admission' => ['ADM'],
+        'vilebrequin' => ['VILB'],
+        'soupape' => ['SOUP'],
+        'support' => ['SUPP'],
+        'chauffage' => ['CHAUF'],
+        'echappement' => ['ECHAP', 'ECHAPE'],
+        'hydraulique' => ['HYDRO'],
+        'distribution' => ['DIST'],
     ];
 }
