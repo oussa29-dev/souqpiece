@@ -10,7 +10,7 @@ function ai_tool_schemas(): array
     return [
         [
             'name' => 'search_products',
-            'description' => 'Search the parts catalog by free text (French part names, descriptions, or OEM reference numbers). Returns matching products with price, availability (disponible: true/false) and a direct product page URL.',
+            'description' => 'Search the parts catalog by free text (French part names, descriptions, or OEM reference numbers). Returns matching products with price, availability (disponible: true/false) and a direct product page URL. Rows with meme_reference=true carry the same reference as a result but are stored under another name: the same part, list them like the others.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -26,7 +26,7 @@ function ai_tool_schemas(): array
         ],
         [
             'name' => 'lookup_by_reference',
-            'description' => 'Look up an exact OEM/manufacturer reference number. Returns all matching products grouped by brand (marquepiece), since the same reference number is often sold under several different brands at different prices. Dashes, spaces and the order of the parts are optional. When nothing matches exactly, rows that differ by one character come back with reference_proche=true: offer them as a close reference to confirm, never as the exact part. Rows with meme_designation=true are the same kind of part under ANOTHER reference that shares a cross-reference code with the ones found (another brand, often the one in stock): list them after the exact matches as an equivalent to confirm by its reference (shown in the name), never as the reference the customer typed - and when every exact match is unavailable, say so and offer the available equivalents. A row with prix_non_disponible=true exists in the catalog but has no online price and no link: tell the customer the part is listed and to contact the store for the price - never say it was not found.',
+            'description' => 'Look up an exact OEM/manufacturer reference number. Returns all matching products grouped by brand (marquepiece), since the same reference number is often sold under several different brands at different prices. Dashes, spaces and the order of the parts are optional. When nothing matches exactly, rows that differ by one character come back with reference_proche=true: offer them as a close reference to confirm, never as the exact part. Rows with meme_designation=true are the same kind of part under ANOTHER reference - sharing a cross-reference code with the ones found, or the same designation for the same vehicle (another brand, often the one in stock): list them after the exact matches as an equivalent to confirm by its reference (shown in the name), never as the reference the customer typed - and when every exact match is unavailable, say so and offer the available equivalents. A row with prix_non_disponible=true exists in the catalog but has no online price and no link: tell the customer the part is listed and to contact the store for the price - never say it was not found.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [

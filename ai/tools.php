@@ -402,18 +402,65 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
             || !array_diff(ai_codes_chassis((string)$r['libelle']), $codesVehicule)));
     }
     $rows = array_slice(ai_sans_doublons($pdo, $rows), 0, $limit);
+    $rows = array_merge($rows, ai_meme_reference($pdo, $rows, $limit, $id_voiture));
 
     foreach ($rows as &$row) {
         $row = ai_disponibilite($row);
         $row['url'] = 'produit.php?id=' . $row['id_produit']
             . (!empty($row['voiture_id']) ? '&id_voiture=' . $row['voiture_id'] : '');
-        if ($id_voiture !== null && empty($row['voiture_id'])) {
+        if ($id_voiture !== null && empty($row['voiture_id']) && empty($row['meme_reference'])) {
             // Found by its name only: the catalog does not link it to the
             // vehicle yet.
             $row['lien_vehicule'] = 'nom_seulement';
         }
     }
     return $rows;
+}
+
+// Designation -> reference, the reverse of ai_equivalents_designation()
+// (store owner, 07/11): the same part stored under another name - "MANO HP -
+// HANSA" and "MANO HB PM - HANSA MALIYSIA" both carry 1460A037. Products
+// sharing a reference code with the first results, same kind of part (same
+// first word), at most 4, flagged meme_reference, reference in the name.
+// Only when the search found fewer than asked: on a broad one ("demarreur")
+// the list is already full and these only add noise. With a vehicle, only
+// parts linked to it: "CONTACTEUR DEMARREUR YARIS NCP/90/92" shares a code
+// with a Yaris NCP151 part.
+function ai_meme_reference(PDO $pdo, array $rows, int $limit, ?int $id_voiture = null): array
+{
+    if (count($rows) >= $limit) {
+        return [];
+    }
+    $tete = array_slice($rows, 0, 5);
+    $ids = array_values(array_filter(array_map(fn($r) => (int)($r['id_produit'] ?? 0), $rows)));
+    $idsTete = array_values(array_filter(array_map(fn($r) => (int)($r['id_produit'] ?? 0), $tete)));
+    if (!$idsTete) {
+        return [];
+    }
+    $stmt = $pdo->prepare('SELECT reference FROM reference WHERE id_produit IN (' . implode(',', array_fill(0, count($idsTete), '?')) . ')');
+    $stmt->execute($idsTete);
+    $premiersMots = [];
+    foreach ($tete as $r) {
+        $premiersMots[substr(ai_premier_mot((string)$r['libelle']), 0, 5)] = true;
+    }
+    $memes = array_filter(
+        ai_produits_par_codes($pdo, ai_codes_references($stmt->fetchAll(PDO::FETCH_COLUMN)), $ids),
+        fn($r) => isset($premiersMots[substr(ai_premier_mot((string)$r['libelle']), 0, 5)])
+    );
+    if ($id_voiture !== null && $memes) {
+        $lies = $pdo->query('SELECT DISTINCT id_produit FROM pvd WHERE id_voiture = ' . (int)$id_voiture . ' AND id_produit IN (' . implode(',', array_map(fn($r) => (int)$r['id_produit'], $memes)) . ')')->fetchAll(PDO::FETCH_COLUMN);
+        $memes = array_map(
+            fn($r) => $r + ['voiture_id' => $id_voiture],
+            array_filter($memes, fn($r) => in_array($r['id_produit'], $lies))
+        );
+    }
+    // Deduplicated together with the results: a copy of a result already
+    // listed is not a new product.
+    $nouveaux = array_filter(ai_sans_doublons($pdo, array_merge($rows, array_values($memes))), fn($r) => !in_array((int)$r['id_produit'], $ids, true));
+    return array_map(fn($r) => array_merge($r, [
+        'meme_reference' => true,
+        'libelle' => trim($r['libelle']) . ' (réf. ' . trim($r['reference']) . ')',
+    ]), array_slice(array_values($nouveaux), 0, 4));
 }
 
 // Each catalog duplicate once - same name, same part brand, same references
@@ -601,59 +648,177 @@ function ai_lookup_by_reference(PDO $pdo, string $reference): array
 }
 
 // The same part under other references, the two-step search the store owner
-// asked for (04/11: customers asking by reference were told "not in stock"
-// while the shop has it): reference -> the designation of what it found ->
-// back to the references, to narrow. A stored reference often lists the
-// part's other codes ("CH0599E/11044-VK505*", "S6104/83530-10010"); a
-// product carrying one of those codes, under the same kind of designation
-// (same first word), is the same part from another brand. The designation
-// alone is not enough - "MANO HB" is also a Nissan part, and 11044-VK500 to
-// VK504 are other head gaskets. Available first, at most 8, flagged, with
-// their reference in the name (the model leaves a separate field out).
+// asked for (04/11, 07/11: customers asking by reference were told "not in
+// stock" while the shop has it): reference -> the designation of what it
+// found -> back to the references. Two ways a product is the same part:
+// - it carries one of the found references' codes - a stored reference often
+//   lists the part's other codes ("CH0599E/11044-VK505*", "S6104/83530-10010")
+//   - under the same kind of designation (same first word);
+// - it has exactly the same designation (Ref1/Ref2/Ref3 "POCHET JOINT QD32"
+//   from three brands, no code in common) AND fits the same vehicle. The
+//   vehicle is required: "AMORTISSEUR AV" has 184 references for 62 cars, a
+//   Hilux reference must not bring them all. When the found products are
+//   linked to no vehicle, the designation must carry a code itself (QD32).
+// Available first, code matches before name matches, at most 10, flagged,
+// with their reference in the name (the model leaves a separate field out).
 // $exclus: every product the reference itself found, duplicates included.
 function ai_equivalents_designation(PDO $pdo, array $trouves, array $exclus): array
 {
-    $codes = [];
+    $exclus = array_values(array_unique(array_map('intval', $exclus)));
+    if (!$trouves || !$exclus) {
+        return [];
+    }
     $premiersMots = [];
+    $designations = [];
     foreach ($trouves as $r) {
-        foreach (preg_split('/[\/,;*()\s]+/', mb_strtoupper((string)$r['reference'])) as $partie) {
+        $mot = ai_premier_mot((string)$r['libelle']);
+        if (strlen($mot) >= 3) {
+            // POCHETTE and POCHET, PLAQUETTE and PLAQUET: compared on 5 letters.
+            $premiersMots[substr($mot, 0, 5)] = true;
+        }
+        $designation = ai_designation_normalisee((string)$r['libelle']);
+        if ($designation !== '') {
+            $designations[$designation] = true;
+        }
+    }
+
+    $parCode = array_filter(
+        ai_produits_par_codes($pdo, ai_codes_references(array_column($trouves, 'reference')), $exclus),
+        fn($r) => isset($premiersMots[substr(ai_premier_mot((string)$r['libelle']), 0, 5)])
+    );
+    $parDesignation = ai_produits_meme_designation($pdo, array_keys($designations), $exclus);
+
+    // A manufacturer code that contradicts the one asked for means another
+    // part, same name and same car or not: 11044-VK500..VK504 are other
+    // head gaskets than 11044-VK505, 43512-52050 another disc than -52020.
+    $oemTrouves = ai_codes_oem(array_column($trouves, 'reference'));
+    $contredit = function (array $r) use ($oemTrouves): bool {
+        $complets = array_filter(array_keys(ai_codes_oem([$r['reference']])), fn($c) => strlen($c) === 10);
+        if (array_intersect($complets, array_keys($oemTrouves))) {
+            return false;
+        }
+        foreach ($complets as $code) {
+            if (isset($oemTrouves[substr($code, 0, 5)])) {
+                return true;
+            }
+        }
+        return false;
+    };
+    $equivalents = [];
+    foreach (array_merge(array_values($parCode), $parDesignation) as $r) {
+        if (!$contredit($r)) {
+            $equivalents[$r['id_produit']] = $equivalents[$r['id_produit']] ?? $r;
+        }
+    }
+    // Stable: available first, code matches still ahead within each group.
+    $equivalents = array_values($equivalents);
+    usort($equivalents, fn($a, $b) => ((int)$b['stock'] > 0) <=> ((int)$a['stock'] > 0));
+
+    return array_map(fn($r) => array_merge($r, [
+        'meme_designation' => true,
+        'libelle' => trim($r['libelle']) . ' (réf. ' . trim($r['reference']) . ')',
+    ]), array_slice(ai_sans_doublons($pdo, $equivalents), 0, 10));
+}
+
+function ai_premier_mot(string $libelle): string
+{
+    return preg_split('/[^A-Z]+/', mb_strtoupper(ai_normalize_term($libelle)), -1, PREG_SPLIT_NO_EMPTY)[0] ?? '';
+}
+
+// "Bute emb  YARIS " and "BUTE EMB YARIS" are the same designation.
+function ai_designation_normalisee(string $libelle): string
+{
+    return mb_strtoupper(preg_replace('/\s+/u', ' ', trim($libelle)));
+}
+
+// The codes inside stored references: "CH0599E/11044-VK505*" holds CH0599E
+// and 11044VK505. Only codes long enough to be distinctive (6+ characters,
+// a digit) - "11044-" alone is shared by every Nissan head gasket.
+function ai_codes_references(array $references): array
+{
+    $codes = [];
+    foreach ($references as $reference) {
+        foreach (preg_split('/[\/,;*()\s]+/', mb_strtoupper((string)$reference)) as $partie) {
             $code = preg_replace('/[^A-Z0-9]/', '', $partie);
             if (strlen($code) >= 6 && preg_match('/[0-9]/', $code)) {
                 $codes[$code] = true;
             }
         }
-        $mot = preg_split('/[^A-Z]+/', mb_strtoupper(ai_normalize_term((string)$r['libelle'])), -1, PREG_SPLIT_NO_EMPTY)[0] ?? '';
-        if (strlen($mot) >= 3) {
-            // POCHETTE and POCHET, PLAQUETTE and PLAQUET: compared on 5 letters.
-            $premiersMots[substr($mot, 0, 5)] = true;
+    }
+    return array_slice(array_keys($codes), 0, 15);
+}
+
+// Manufacturer codes in the Toyota / Nissan form "43512-52020" (5 + 5), as
+// keys "4351252020", plus each one's first part ("43512") so a code with the
+// same first part and another ending can be told apart.
+function ai_codes_oem(array $references): array
+{
+    $codes = [];
+    foreach ($references as $reference) {
+        preg_match_all('/(?<![A-Z0-9])([0-9]{5})-?([A-Z0-9]{5})(?![A-Z0-9])/', mb_strtoupper((string)$reference), $m, PREG_SET_ORDER);
+        foreach ($m as $code) {
+            $codes[$code[1] . $code[2]] = true;
+            $codes[$code[1]] = true;
         }
     }
-    $exclus = array_values(array_unique(array_map('intval', $exclus)));
-    if (!$codes || !$premiersMots || !$exclus) {
+    return $codes;
+}
+
+// Priced products whose stored reference contains one of $codes.
+function ai_produits_par_codes(PDO $pdo, array $codes, array $exclus): array
+{
+    if (!$codes) {
         return [];
     }
-    $codes = array_slice(array_keys($codes), 0, 15);
-
+    // One REGEXP over the compacted reference rather than a LIKE per code:
+    // the compaction then runs once per row (codes are A-Z0-9 only).
     $sql = "SELECT MIN(r.reference) AS reference, p.id_produit, p.libelle, p.marquepiece, p.prix, p.stock
             FROM produit p
             JOIN reference r ON r.id_produit = p.id_produit
-            WHERE (" . implode(' OR ', array_fill(0, count($codes), "REGEXP_REPLACE(UPPER(r.reference), '[^A-Z0-9]', '') LIKE ?")) . ")
-              AND p.id_produit NOT IN (" . implode(',', array_fill(0, count($exclus), '?')) . ")
-              AND p.prix > 0
+            WHERE REGEXP_REPLACE(UPPER(r.reference), '[^A-Z0-9]', '') REGEXP ?
+              AND p.prix > 0"
+            . ($exclus ? ' AND p.id_produit NOT IN (' . implode(',', array_fill(0, count($exclus), '?')) . ')' : '') . "
             GROUP BY p.id_produit
             ORDER BY p.stock DESC, p.id_produit
             LIMIT 40";
     $stmt = $pdo->prepare($sql);
-    $stmt->execute(array_merge(array_map(fn($c) => "%$c%", $codes), $exclus));
-    $equivalents = array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), function ($r) use ($premiersMots) {
-        $mot = preg_split('/[^A-Z]+/', mb_strtoupper(ai_normalize_term((string)$r['libelle'])), -1, PREG_SPLIT_NO_EMPTY)[0] ?? '';
-        return isset($premiersMots[substr($mot, 0, 5)]);
-    });
+    $stmt->execute(array_merge([implode('|', $codes)], $exclus));
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
-    return array_map(fn($r) => array_merge($r, [
-        'meme_designation' => true,
-        'libelle' => trim($r['libelle']) . ' (réf. ' . trim($r['reference']) . ')',
-    ]), array_slice(ai_sans_doublons($pdo, array_values($equivalents)), 0, 8));
+// Priced products with exactly one of these designations, fitting a vehicle
+// the excluded (found) products fit - see ai_equivalents_designation().
+function ai_produits_meme_designation(PDO $pdo, array $designations, array $exclus): array
+{
+    if (!$designations || !$exclus) {
+        return [];
+    }
+    $marquesExclus = implode(',', array_fill(0, count($exclus), '?'));
+    $stmt = $pdo->prepare("SELECT DISTINCT id_voiture FROM pvd WHERE id_produit IN ($marquesExclus)");
+    $stmt->execute($exclus);
+    $voitures = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    if (!$voitures) {
+        $designations = array_values(array_filter($designations, fn($d) => preg_match('/[0-9]/', $d)));
+        if (!$designations) {
+            return [];
+        }
+    }
+
+    $sql = "SELECT MIN(r.reference) AS reference, p.id_produit, p.libelle, p.marquepiece, p.prix, p.stock
+            FROM produit p
+            JOIN reference r ON r.id_produit = p.id_produit
+            WHERE UPPER(REGEXP_REPLACE(TRIM(p.libelle), '[[:space:]]+', ' ')) IN (" . implode(',', array_fill(0, count($designations), '?')) . ")
+              AND p.id_produit NOT IN ($marquesExclus)
+              AND p.prix > 0";
+    $params = array_merge($designations, $exclus);
+    if ($voitures) {
+        $sql .= ' AND EXISTS (SELECT 1 FROM pvd WHERE pvd.id_produit = p.id_produit AND pvd.id_voiture IN (' . implode(',', array_fill(0, count($voitures), '?')) . '))';
+        $params = array_merge($params, $voitures);
+    }
+    $sql .= ' GROUP BY p.id_produit ORDER BY p.stock DESC, p.id_produit LIMIT 40';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 // Returns ['unique' => bool, 'matches' => [...]]. `unique` is the

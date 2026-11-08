@@ -258,10 +258,38 @@ $equivalents = array_filter($lignes, fn($l) => !empty($l['meme_designation']));
 check('CH0599E (BGA) also brings the same gasket under 11044-VK505 from other brands', count($equivalents) >= 2, array_column($lignes, 'libelle'));
 check('an available equivalent is among them', (bool)array_filter($equivalents, fn($l) => $l['disponible']), array_column($equivalents, 'libelle'));
 check('equivalents carry their own reference in the name', !array_filter($equivalents, fn($l) => strpos($l['libelle'], '(réf. ') === false), array_column($equivalents, 'libelle'));
-$lignes = array_merge(...array_values(ai_lookup_by_reference($pdo, '1460A037')));
-check('a shared designation alone is not enough (1460A037 L200 brings no Nissan MANO HB)', !array_filter($lignes, fn($l) => stripos($l['libelle'], 'A6860') !== false || stripos((string)$l['reference'], 'A6860') !== false), array_column($lignes, 'libelle'));
+$lignes = array_merge(...array_values(ai_lookup_by_reference($pdo, '04465-0K240')));
+$equivalents = array_filter($lignes, fn($l) => !empty($l['meme_designation']));
+check('same designation, same vehicle, no code in common: other brands come back (Ref1/Ref2/Ref3, store owner 07/11)',
+    (bool)array_filter($equivalents, fn($l) => !array_intersect(ai_codes_references([$l['reference']]), ['044650K240', '670284'])), array_column($lignes, 'libelle'));
+// A generic designation stays on the vehicle: every name-matched equivalent
+// of an "AMORTISSEUR AV" reference fits a vehicle the reference's part fits.
+$amorti = $pdo->query("SELECT r.reference, p.id_produit FROM produit p JOIN reference r ON r.id_produit = p.id_produit JOIN pvd ON pvd.id_produit = p.id_produit WHERE TRIM(p.libelle) = 'AMORTISSEUR AV' AND p.prix > 0 AND LENGTH(r.reference) >= 6 LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+if ($amorti) {
+    $lignes = array_merge(...array_values(ai_lookup_by_reference($pdo, $amorti['reference'])));
+    $trouves = array_column(array_filter($lignes, fn($l) => empty($l['meme_designation'])), 'id_produit');
+    $equivalents = array_column(array_filter($lignes, fn($l) => !empty($l['meme_designation'])), 'id_produit');
+    $hors = [];
+    foreach ($equivalents as $id) {
+        $commun = $pdo->query('SELECT COUNT(*) FROM pvd a JOIN pvd b ON a.id_voiture = b.id_voiture WHERE a.id_produit = ' . (int)$id . ' AND b.id_produit IN (' . implode(',', array_map('intval', $trouves)) . ')')->fetchColumn();
+        $code = array_intersect(ai_codes_references([$pdo->query('SELECT GROUP_CONCAT(reference) FROM reference WHERE id_produit = ' . (int)$id)->fetchColumn()]), ai_codes_references([$amorti['reference']]));
+        if (!$commun && !$code) {
+            $hors[] = $id;
+        }
+    }
+    check("generic designation (AMORTISSEUR AV, 184 references) stays on the same vehicle ({$amorti['reference']}: " . count($equivalents) . ' equivalents)', count($equivalents) <= 10 && !$hors, $hors);
+}
 $lignes = array_merge(...array_values(ai_lookup_by_reference($pdo, '11044-vk505')));
 check('other head gaskets (11044-VK500..504) are not equivalents of VK505', !array_filter($lignes, fn($l) => preg_match('/VK50[0-4]/', (string)$l['reference']) && stripos((string)$l['reference'], 'VK505') === false), array_column($lignes, 'reference'));
+$lignes = array_merge(...array_values(ai_lookup_by_reference($pdo, '43512-52020')));
+check('another manufacturer code with the same first part (43512-52050) is not an equivalent of 43512-52020', !array_filter($lignes, fn($l) => strpos((string)$l['reference'], '52050') !== false), array_column($lignes, 'reference'));
+
+echo "\n== Designation -> reference (store owner 07/11)\n";
+$r = ai_search_products($pdo, 'mano hp l200', null, null, 8);
+check('"mano hp l200" also brings the same reference stored under another name (MANO HB PM - HANSA MALIYSIA, 1460A037)',
+    (bool)array_filter($r, fn($x) => !empty($x['meme_reference']) && strpos($x['libelle'], '1460A037') !== false), array_column($r, 'libelle'));
+$r = ai_search_products($pdo, 'demarreur', null, null, 8);
+check('a broad search that already fills the list gets no additions', !array_filter($r, fn($x) => !empty($x['meme_reference'])), array_column($r, 'libelle'));
 
 echo "\n== Wholesale price (client_gros)\n";
 require_once __DIR__ . '/../dashboard/include/prix_gros.php';
