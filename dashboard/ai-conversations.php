@@ -321,6 +321,8 @@ $clientChoisi = $clients[$telChoisi] ?? [];
         .aic-entete{font-size:14px;color:#333;border-bottom:1px solid #e3e6ea;padding-bottom:10px;margin-bottom:4px;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
         .aic-entete a{color:#126CFB;text-decoration:none}
         .aic-retour{display:none}
+        .aic-plus{text-align:center;font-size:13px;color:#6b7684}
+        .aic-plus a{display:inline-block;background:#e8f0ff;color:#126CFB;text-decoration:none;padding:6px 14px;border-radius:8px;margin-right:6px}
         .aic-jour{align-self:center;font-size:12px;color:#555;background:#e9edf2;border-radius:999px;padding:3px 12px;margin:6px 0}
         .aic-msg{max-width:78%;padding:10px 13px;border-radius:12px;font-size:14px;line-height:1.6;word-break:break-word}
         .aic-user{align-self:flex-end;background:#e12929;color:#fff;border-bottom-right-radius:3px}
@@ -428,9 +430,21 @@ $clientChoisi = $clients[$telChoisi] ?? [];
                         <span style="color:#6b7684;font-size:13px">du <?= h(date('d/m/Y', strtotime($messages[0]['created_at']))) ?> au <?= h(date('d/m/Y', strtotime(end($messages)['created_at']))) ?></span>
                     </div>
                     <?php
+                        // Like Messenger (store owner, 12/11): reading order,
+                        // only the last day of the conversation at first, each
+                        // "Messages precedents" click shows one more day.
+                        $jours = array_values(array_unique(array_map(fn($m) => substr($m['created_at'], 0, 10), $messages)));
+                        $joursAffiches = min(max(1, (int)($_GET['jours'] ?? 1)), count($jours));
+                        $depuis = $jours[count($jours) - $joursAffiches];
+                        $affiches = array_values(array_filter($messages, fn($m) => substr($m['created_at'], 0, 10) >= $depuis));
+                    ?>
+                    <?php if ($joursAffiches < count($jours)): ?>
+                        <div class="aic-plus"><a href="<?= h($lienFiltres(['s' => $sessionChoisie, 'jours' => $joursAffiches + 1])) ?>">‹ Messages précédents</a></div>
+                    <?php endif; ?>
+                    <?php
                         $dernierUser = null;
                         $jourCourant = '';
-                        foreach ($messages as $m):
+                        foreach ($affiches as $m):
                             $estErreur = $m['role'] === 'assistant' && strpos((string)$m['tools_called'], '"_error"') !== false;
                             $delai = null;
                             if ($m['role'] === 'user') {
@@ -458,6 +472,13 @@ $clientChoisi = $clients[$telChoisi] ?? [];
                             </div>
                         </div>
                     <?php endforeach; ?>
+                    <?php if ($joursAffiches === 1): ?>
+                        <script>
+                            // Open on the newest message, as a chat app does.
+                            var derniers = document.querySelectorAll('.aic-msg');
+                            if (derniers.length) { derniers[derniers.length - 1].scrollIntoView({block: 'end'}); }
+                        </script>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
         </div>
