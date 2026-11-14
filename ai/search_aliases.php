@@ -96,6 +96,9 @@ function ai_search_synonym_groups(): array
         ['silentbloc', 'silent', 'selen'],
         ['amortisseur', 'amortiseur'],
         ['frein', 'frien'],
+        // Store owner, 14/11: the catalog writes CHAIN (566 products) far
+        // more than CHAINE (35) - "chaine hilux" missed "CHAIN HILUX 2L/3L/5L".
+        ['chaine', 'chain'],
     ];
 }
 

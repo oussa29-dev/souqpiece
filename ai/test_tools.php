@@ -326,5 +326,10 @@ check('correct lines and text without links left unchanged', ai_corriger_disponi
 $t = ai_corriger_disponibilite("CULASSE - 98100 DA - غير متوفر - [voir le produit](produit.php?id=7518)", $dispo);
 check('available product shown "غير متوفر" -> "متوفر"', strpos($t, 'غير') === false && strpos($t, 'متوفر') !== false, $t);
 
+echo "\n== CHAIN / CHAINE (store owner 14/11: \"chaine hilux\" missed \"CHAIN HILUX 2L/3L/5L\")\n";
+$r = ai_search_products($pdo, 'chaine hilux', null, null, 20);
+check('"chaine" also finds products written CHAIN',
+    count(array_filter($r, fn($p) => preg_match('/\bCHAIN\b/i', $p['libelle']))) > 0, array_column($r, 'libelle'));
+
 echo "\n---\n$pass passed, $fail failed\n";
 exit($fail > 0 ? 1 : 0);
