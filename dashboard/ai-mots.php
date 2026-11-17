@@ -39,11 +39,17 @@ function am_produits(PDO $pdo, string $equivalent): int
     return (int)$stmt->fetchColumn();
 }
 
+// Same match as the assistant (ai_voitures_contenant), spaces ignored in
+// number.
 function am_voitures(PDO $pdo, string $equivalent): array
 {
+    $ids = ai_voitures_contenant($pdo, $equivalent);
+    if (!$ids) {
+        return [];
+    }
     $stmt = $pdo->prepare("SELECT CONCAT(m.libelle, ' ', v.modele) FROM voiture v JOIN marque m ON m.id_marque = v.id_marque
-                           WHERE CONCAT(m.libelle, ' ', v.modele) LIKE ? ORDER BY m.libelle, v.modele");
-    $stmt->execute([like($equivalent)]);
+                           WHERE v.id_voiture IN (" . implode(',', array_fill(0, count($ids), '?')) . ") ORDER BY m.libelle, v.modele");
+    $stmt->execute($ids);
     return array_map(fn($v) => preg_replace('/\s+/', ' ', trim($v)), $stmt->fetchAll(PDO::FETCH_COLUMN));
 }
 
@@ -72,8 +78,8 @@ if ($tableExiste && $_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
             if ($saisie['mot'] === '' || mb_strlen($saisie['mot']) > 60) {
                 $erreurs[] = 'Écrivez le mot du client (60 caractères maximum).';
-            } elseif (strpos($saisie['mot'], ' ') !== false) {
-                $erreurs[] = 'Le mot du client doit être un seul mot, sans espace : l\'IA lit les mots un par un.';
+            } elseif (substr_count($saisie['mot'], ' ') >= 5) {
+                $erreurs[] = 'Le mot du client : 5 mots maximum.';
             }
             if ($saisie['equivalent'] === '' || mb_strlen($saisie['equivalent']) > 100) {
                 $erreurs[] = 'Écrivez le mot du catalogue (100 caractères maximum).';
@@ -113,6 +119,16 @@ $mots = $tableExiste ? $pdo->query('SELECT * FROM ai_mot_appris ORDER BY type, m
 // Try a customer's sentence: what the assistant's product search returns.
 $essai = trim((string)($_GET['essai'] ?? ''));
 $resultatsEssai = $essai !== '' ? ai_search_products($pdo, mb_substr($essai, 0, 200), null, null, 10) : [];
+// Vehicle picked by a taught vehicle word or phrase, if any.
+$voitureEssai = '';
+if ($essai !== '') {
+    [, $idVoitureEssai] = ai_regrouper_expressions($pdo, preg_split('/\s+/u', mb_substr($essai, 0, 200), -1, PREG_SPLIT_NO_EMPTY));
+    if ($idVoitureEssai !== null) {
+        $stmt = $pdo->prepare("SELECT CONCAT(m.libelle, ' ', v.modele) FROM voiture v JOIN marque m ON m.id_marque = v.id_marque WHERE v.id_voiture = ?");
+        $stmt->execute([$idVoitureEssai]);
+        $voitureEssai = preg_replace('/\s+/', ' ', trim((string)$stmt->fetchColumn()));
+    }
+}
 
 $messages = ['ajoute' => 'Mot ajouté. L\'IA le comprend dès maintenant.', 'supprime' => 'Mot supprimé.'];
 $message = $messages[$_GET['msg'] ?? ''] ?? '';
@@ -137,6 +153,9 @@ $message = $messages[$_GET['msg'] ?? ''] ?? '';
         .am-err{background:#fde2e2;color:#a00707}
         .am-err ul{margin:0;padding-left:18px}
         .am-table{width:100%;margin-top:12px}
+        .am-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+        .am-scroll .am-table{min-width:640px}
+        .am-scroll td,.am-scroll th{white-space:normal}
         .am-table td{height:auto;width:auto}
         .am-type{border-radius:999px;padding:3px 10px;font-size:13px;color:#fff;white-space:nowrap}
         .am-type.piece{background:#2f6fb3}
@@ -165,7 +184,8 @@ $message = $messages[$_GET['msg'] ?? ''] ?? '';
         <div class="barre">Apprendre à l'IA</div>
         <div class="page-voiture">
             <p class="am-aide">Quand un client écrit un mot que l'IA ne comprend pas, ajoutez-le ici avec le mot <b>tel qu'il est écrit dans le catalogue</b>.
-                Exemples : pièce <b>شان</b> → <b>CHAIN</b>, voiture <b>تيسيس</b> → <b>T6</b>.
+                Un mot ou une expression de plusieurs mots. Exemples : pièce <b>bras de force</b> → <b>TRIANGLE</b>, voiture <b>vigo turbo</b> → <b>VIGO 2WD KUN15 D4D</b>.
+                Une voiture écrite en entier (une seule voiture trouvée) est choisie directement par l'IA.
                 Un mot peut avoir plusieurs équivalents : ajoutez-le une fois pour chacun. L'IA l'utilise sur le site et sur WhatsApp dès l'ajout.</p>
 
             <?php if (!$tableExiste): ?>
@@ -198,6 +218,7 @@ $message = $messages[$_GET['msg'] ?? ''] ?? '';
             </form>
 
             <h2 class="am-section">Mots appris (<?= count($mots) ?>)</h2>
+            <div class="am-scroll">
             <table class="am-table">
                 <tr><th>Type</th><th>Mot du client</th><th>Mot du catalogue</th><th>Trouve</th><th>Ajouté le</th><th></th></tr>
                 <?php if (!$mots): ?>
@@ -230,6 +251,7 @@ $message = $messages[$_GET['msg'] ?? ''] ?? '';
                     </tr>
                 <?php endforeach; ?>
             </table>
+            </div>
             <?php endif; ?>
 
             <h2 class="am-section">Essayer</h2>
@@ -239,6 +261,7 @@ $message = $messages[$_GET['msg'] ?? ''] ?? '';
                 <input type="submit" value="Essayer">
             </form>
             <?php if ($essai !== ''): ?>
+                <?php if ($voitureEssai !== ''): ?><p class="am-trouve">Voiture reconnue : <b><?= h($voitureEssai) ?></b></p><?php endif; ?>
                 <?php if (!$resultatsEssai): ?>
                     <p class="am-trouve am-zero">Aucun produit trouvé.</p>
                 <?php else: ?>

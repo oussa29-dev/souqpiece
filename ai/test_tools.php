@@ -353,6 +353,29 @@ if (!$tableMots) {
         $pdo->exec("DELETE FROM ai_mot_appris WHERE mot IN ('zzchaintest', 'زززشان', 'zzhlxtest')");
         ai_mots_appris($pdo, true);
     }
+
+    // Phrases (store owner 17/11: "bras de force" = TRIANGLE, "vigo turbo"
+    // = VIGO 2WD KUN15 D4D - the page refused anything with a space).
+    $pdo->exec("DELETE FROM ai_mot_appris WHERE mot IN ('zzbras de force', 'zzvigo turbo')");
+    $pdo->exec("INSERT INTO ai_mot_appris (type, mot, equivalent) VALUES ('piece', 'zzbras de force', 'TRIANGLE'), ('voiture', 'zzvigo turbo', 'VIGO 2WD KUN15 D4D')");
+    ai_mots_appris($pdo, true);
+    try {
+        [$termes, $voiture] = ai_regrouper_expressions($pdo, ['ZZbras', 'de', 'force', 'zzvigo', 'TURBO']);
+        $kun15 = (int)$pdo->query("SELECT id_voiture FROM voiture WHERE REPLACE(modele, ' ', '') = 'VIGO2WDKUN15D4D'")->fetchColumn();
+        check('part phrase becomes one term, vehicle phrase gives the vehicle', $termes === ['ZZbras de force'] && $voiture === $kun15, [$termes, $voiture, $kun15]);
+        $r = ai_search_products($pdo, 'zzbras de force', null, null, 10);
+        check('search with a part phrase finds its catalog word', $r && count(array_filter($r, fn($p) => stripos($p['libelle'], 'TRIANGLE') !== false)) === count($r), array_column($r, 'libelle'));
+        $avec = ai_search_products($pdo, 'zzbras de force zzvigo turbo', null, null, 20);
+        $direct = ai_search_products($pdo, 'triangle', $kun15, null, 20);
+        check('part phrase + vehicle phrase = search on that vehicle', $avec && array_column($avec, 'id_produit') === array_column($direct, 'id_produit'), [array_column($avec, 'libelle'), array_column($direct, 'libelle')]);
+        $v = ai_resolve_vehicle($pdo, 'zzvigo turbo');
+        check('vehicle phrase resolves to that one vehicle', $v['unique'] && (int)$v['matches'][0]['id_voiture'] === $kun15, $v);
+        $v = ai_resolve_vehicle($pdo, 'zzbras de force vigo');
+        check('part phrase stays one part phrase for resolve_vehicle', in_array('zzbras de force', $v['not_vehicle_words'], true), $v['not_vehicle_words']);
+    } finally {
+        $pdo->exec("DELETE FROM ai_mot_appris WHERE mot IN ('zzbras de force', 'zzvigo turbo')");
+        ai_mots_appris($pdo, true);
+    }
 }
 
 echo "\n---\n$pass passed, $fail failed\n";

@@ -42,29 +42,112 @@ function ai_normalize_term(string $term): string
 // ى -> ي).
 function ai_cle_mot_appris(string $mot): string
 {
-    return strtr(ai_normalize_term($mot), ['أ' => 'ا', 'إ' => 'ا', 'آ' => 'ا', 'ة' => 'ه', 'ى' => 'ي']);
+    return strtr(preg_replace('/\s+/u', ' ', ai_normalize_term($mot)), ['أ' => 'ا', 'إ' => 'ا', 'آ' => 'ا', 'ة' => 'ه', 'ى' => 'ي']);
 }
 
-// Words the store owner taught from Dashboard > Apprendre a l'IA (table
-// ai_mot_appris): [key => [catalog words]]. Read once per request, on the
-// first call with a PDO; $recharger re-reads it (tests). Empty when the
-// table is missing (migration not run yet).
-function ai_mots_appris(?PDO $pdo = null, bool $recharger = false): array
+// Rows of ai_mot_appris (Dashboard > Apprendre a l'IA): type, mot,
+// equivalent. Read once per request, on the first call with a PDO;
+// $recharger re-reads it (tests). Empty when the table is missing
+// (migration not run yet).
+function ai_lignes_mots_appris(?PDO $pdo = null, bool $recharger = false): array
 {
-    static $mots = null;
-    if (($mots === null || $recharger) && $pdo !== null) {
-        $mots = [];
+    static $lignes = null;
+    if (($lignes === null || $recharger) && $pdo !== null) {
+        $lignes = [];
         try {
             // false, not an exception, with production's silent PDO.
-            $stmt = $pdo->query('SELECT mot, equivalent FROM ai_mot_appris ORDER BY id_mot');
-            foreach ($stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [] as $row) {
-                $mots[ai_cle_mot_appris($row['mot'])][] = $row['equivalent'];
-            }
+            $stmt = $pdo->query('SELECT type, mot, equivalent FROM ai_mot_appris ORDER BY id_mot');
+            $lignes = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
         } catch (PDOException $e) {
-            $mots = [];
+            $lignes = [];
         }
     }
-    return $mots ?? [];
+    return $lignes ?? [];
+}
+
+// Words taught by the store owner: [key => [catalog words]], every type.
+function ai_mots_appris(?PDO $pdo = null, bool $recharger = false): array
+{
+    $mots = [];
+    foreach (ai_lignes_mots_appris($pdo, $recharger) as $row) {
+        $mots[ai_cle_mot_appris($row['mot'])][] = $row['equivalent'];
+    }
+    return $mots;
+}
+
+// Vehicles (id_voiture) whose brand + model contain this text, spaces
+// ignored in number ("VIGO 4WD LAN25  KUN25" is stored with two).
+function ai_voitures_contenant(PDO $pdo, string $texte): array
+{
+    static $voitures = null;
+    if ($voitures === null) {
+        $voitures = [];
+        $stmt = $pdo->query('SELECT v.id_voiture, m.libelle AS marque, v.modele FROM voiture v JOIN marque m ON m.id_marque = v.id_marque');
+        foreach ($stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [] as $v) {
+            $voitures[(int)$v['id_voiture']] = mb_strtoupper(preg_replace('/\s+/u', ' ', trim($v['marque'] . ' ' . $v['modele'])));
+        }
+    }
+    $texte = mb_strtoupper(preg_replace('/\s+/u', ' ', trim($texte)));
+    if ($texte === '') {
+        return [];
+    }
+    return array_keys(array_filter($voitures, fn($nom) => mb_strpos($nom, $texte) !== false));
+}
+
+// Groups the customer's words into the phrases taught by the store owner.
+// $mots: the customer's words in order. Returns [terms, id_voiture]:
+// - a part phrase ("bras de force" -> TRIANGLE) becomes ONE term, whose
+//   catalog word ai_arabic_alias_lookup() then adds;
+// - vehicle words or phrases ("vigo turbo" -> VIGO 2WD KUN15 D4D) that
+//   point to exactly one vehicle are taken out of the terms and give that
+//   vehicle: product descriptions write "VIGO 2WD D4D", never the full
+//   model name, so searching the text would find nothing;
+// - anything else is left word by word, as before.
+function ai_regrouper_expressions(PDO $pdo, array $mots): array
+{
+    $entrees = [];
+    foreach (ai_lignes_mots_appris($pdo) as $row) {
+        $cle = ai_cle_mot_appris($row['mot']);
+        if ($row['type'] === 'voiture' || strpos($cle, ' ') !== false) {
+            $entrees[$cle]['type'] = $row['type'] === 'voiture' ? 'voiture' : ($entrees[$cle]['type'] ?? 'piece');
+            $entrees[$cle]['equivalents'][] = $row['equivalent'];
+        }
+    }
+    if (!$entrees) {
+        return [array_values($mots), null];
+    }
+    // Longest phrase first: "vigo turbo 4x4" before "vigo turbo".
+    uksort($entrees, fn($a, $b) => substr_count($b, ' ') <=> substr_count($a, ' '));
+    $cles = array_map('ai_cle_mot_appris', $mots);
+
+    $termes = [];
+    $voiture = null;
+    for ($i = 0, $n = count($mots); $i < $n;) {
+        foreach ($entrees as $cle => $entree) {
+            $longueur = substr_count($cle, ' ') + 1;
+            if (implode(' ', array_slice($cles, $i, $longueur)) !== $cle) {
+                continue;
+            }
+            if ($entree['type'] === 'voiture') {
+                $ids = [];
+                foreach ($entree['equivalents'] as $equivalent) {
+                    $ids = array_merge($ids, ai_voitures_contenant($pdo, $equivalent));
+                }
+                $ids = array_values(array_unique($ids));
+                if (count($ids) !== 1 || ($voiture !== null && $voiture !== $ids[0])) {
+                    continue;
+                }
+                $voiture = $ids[0];
+            } else {
+                $termes[] = implode(' ', array_slice($mots, $i, $longueur));
+            }
+            $i += $longueur;
+            continue 2;
+        }
+        $termes[] = $mots[$i];
+        $i++;
+    }
+    return [$termes, $voiture];
 }
 
 // Catalog equivalents of a customer's word, or null: the built-in Arabic/
@@ -254,7 +337,15 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     // across reference, pvd.description and produit.libelle.
     $searchTerm = trim($query);
     $normalized = str_replace(' ', '*', $searchTerm);
-    $terms = array_filter(array_map('trim', explode('*', $normalized)));
+    $terms = array_values(array_filter(array_map('trim', explode('*', $normalized))));
+    // Phrases taught by the store owner, before the linking words below are
+    // dropped ("bras de force"). A vehicle phrase gives the vehicle, unless
+    // it is the whole query (nothing left to search).
+    [$regroupes, $voitureApprise] = ai_regrouper_expressions($pdo, $terms);
+    if ($regroupes) {
+        $terms = $regroupes;
+        $id_voiture = $id_voiture ?? $voitureApprise;
+    }
     // Linking words are not part names: "pochette de joints" must not
     // require "DE" in the product, nor "plaquette تاع hilux" "تاع".
     $motsVides = ['DE', 'DU', 'DES', 'D', 'LA', 'LE', 'LES', 'L', 'POUR', 'ET', 'A', 'AVEC', 'EN', 'SUR', 'تاع', 'ديال', 'نتاع', 'متاع'];
@@ -881,10 +972,23 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     // candidates instead of being matched as text.
     $annee = null;
     $needleTokens = [];
-    foreach (preg_split('/\s+/u', trim($free_text)) as $token) {
-        if ($token === '') {
-            continue;
+    // A phrase taught by the store owner ("vigo turbo") is read as one word.
+    $mots = array_values(array_filter(preg_split('/\s+/u', trim($free_text)), fn($t) => $t !== ''));
+    $phrases = array_filter(array_keys(ai_mots_appris($pdo)), fn($cle) => strpos($cle, ' ') !== false);
+    usort($phrases, fn($a, $b) => substr_count($b, ' ') <=> substr_count($a, ' '));
+    $tokens = [];
+    for ($i = 0, $n = count($mots); $i < $n;) {
+        foreach ($phrases as $phrase) {
+            $longueur = substr_count($phrase, ' ') + 1;
+            if (ai_cle_mot_appris(implode(' ', array_slice($mots, $i, $longueur))) === $phrase) {
+                $tokens[] = implode(' ', array_slice($mots, $i, $longueur));
+                $i += $longueur;
+                continue 2;
+            }
         }
+        $tokens[] = $mots[$i++];
+    }
+    foreach ($tokens as $token) {
         if (preg_match('/^(19|20)\d{2}$/', $token)) {
             $annee = (int)$token;
             continue;
@@ -903,7 +1007,7 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     $scored = [];
     $tokensUtiles = [];
     foreach ($all as $row) {
-        $haystack = mb_strtoupper($row['marque'] . ' ' . $row['modele']);
+        $haystack = mb_strtoupper(preg_replace('/\s+/u', ' ', $row['marque'] . ' ' . $row['modele']));
         $score = 0;
         foreach ($needleTokens as $original => $candidats) {
             // Also letters and digits only: "XLI2024" for "XLI 2024" (production
