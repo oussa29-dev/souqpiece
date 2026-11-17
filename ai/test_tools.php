@@ -331,5 +331,29 @@ $r = ai_search_products($pdo, 'chaine hilux', null, null, 20);
 check('"chaine" also finds products written CHAIN',
     count(array_filter($r, fn($p) => preg_match('/\bCHAIN\b/i', $p['libelle']))) > 0, array_column($r, 'libelle'));
 
+echo "\n== Words taught from Dashboard > Apprendre a l'IA (table ai_mot_appris)\n";
+$tableMots = (bool)$pdo->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_mot_appris'")->fetchColumn();
+if (!$tableMots) {
+    echo "  (skipped: run php dashboard/ai_mot_appris_migration.php --apply)\n";
+} else {
+    // Made-up words, removed at the end: never a real customer's word.
+    $pdo->exec("DELETE FROM ai_mot_appris WHERE mot IN ('zzchaintest', 'زززشان', 'zzhlxtest')");
+    $pdo->exec("INSERT INTO ai_mot_appris (type, mot, equivalent) VALUES ('piece', 'zzchaintest', 'CHAIN'), ('piece', 'زززشان', 'CHAIN'), ('voiture', 'zzhlxtest', 'HILUX')");
+    ai_mots_appris($pdo, true);
+    try {
+        check('taught Latin word -> its catalog word', in_array('CHAIN', ai_arabic_alias_lookup('ZZchaintest', $pdo) ?? [], true), ai_arabic_alias_lookup('ZZchaintest', $pdo));
+        check('taught Arabic word, also with a leading ال', in_array('CHAIN', ai_arabic_alias_lookup('الزززشان', $pdo) ?? [], true), ai_arabic_alias_lookup('الزززشان', $pdo));
+        $r = ai_search_products($pdo, 'زززشان hilux', null, null, 10);
+        check('search with a taught part word finds the catalog word', count(array_filter($r, fn($p) => stripos($p['libelle'], 'CHAIN') !== false)) > 0, array_column($r, 'libelle'));
+        $v = ai_resolve_vehicle($pdo, 'zzhlxtest');
+        check('taught vehicle word resolves to that vehicle', $v['matches'] && stripos($v['matches'][0]['label'], 'HILUX') !== false && !in_array('zzhlxtest', $v['not_vehicle_words'], true), $v);
+        $v = ai_resolve_vehicle($pdo, 'zzchaintest hilux');
+        check('taught part word stays a part word for resolve_vehicle', in_array('zzchaintest', $v['not_vehicle_words'], true), $v['not_vehicle_words']);
+    } finally {
+        $pdo->exec("DELETE FROM ai_mot_appris WHERE mot IN ('zzchaintest', 'زززشان', 'zzhlxtest')");
+        ai_mots_appris($pdo, true);
+    }
+}
+
 echo "\n---\n$pass passed, $fail failed\n";
 exit($fail > 0 ? 1 : 0);

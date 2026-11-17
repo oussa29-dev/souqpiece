@@ -37,19 +37,56 @@ function ai_normalize_term(string $term): string
     return strtr(mb_strtolower(trim($term)), $map);
 }
 
-// French equivalents of an Arabic/Darija word, or null. Also tries the word
-// without a leading definite article ("الفرامل" -> "فرامل").
-function ai_arabic_alias_lookup(string $term): ?array
+// Key of a word taught from the dashboard: lowercase, accent-folded, and the
+// Arabic letters customers write either way made one (أ/إ/آ -> ا, ة -> ه,
+// ى -> ي).
+function ai_cle_mot_appris(string $mot): string
+{
+    return strtr(ai_normalize_term($mot), ['أ' => 'ا', 'إ' => 'ا', 'آ' => 'ا', 'ة' => 'ه', 'ى' => 'ي']);
+}
+
+// Words the store owner taught from Dashboard > Apprendre a l'IA (table
+// ai_mot_appris): [key => [catalog words]]. Read once per request, on the
+// first call with a PDO; $recharger re-reads it (tests). Empty when the
+// table is missing (migration not run yet).
+function ai_mots_appris(?PDO $pdo = null, bool $recharger = false): array
+{
+    static $mots = null;
+    if (($mots === null || $recharger) && $pdo !== null) {
+        $mots = [];
+        try {
+            // false, not an exception, with production's silent PDO.
+            $stmt = $pdo->query('SELECT mot, equivalent FROM ai_mot_appris ORDER BY id_mot');
+            foreach ($stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [] as $row) {
+                $mots[ai_cle_mot_appris($row['mot'])][] = $row['equivalent'];
+            }
+        } catch (PDOException $e) {
+            $mots = [];
+        }
+    }
+    return $mots ?? [];
+}
+
+// Catalog equivalents of a customer's word, or null: the built-in Arabic/
+// Darija dictionary (search_aliases.php) plus the words taught from the
+// dashboard, in any script. Also tries the word without a leading definite
+// article ("الفرامل" -> "فرامل").
+function ai_arabic_alias_lookup(string $term, ?PDO $pdo = null): ?array
 {
     $aliases = ai_search_arabic_aliases();
+    $appris = ai_mots_appris($pdo);
     $trimmed = trim($term);
-    if (isset($aliases[$trimmed])) {
-        return $aliases[$trimmed];
+    $trouves = [];
+    foreach (array_unique([$trimmed, mb_substr($trimmed, 0, 2) === 'ال' ? mb_substr($trimmed, 2) : $trimmed]) as $mot) {
+        if (isset($aliases[$mot])) {
+            $trouves = array_merge($trouves, $aliases[$mot]);
+        }
+        $trouves = array_merge($trouves, $appris[ai_cle_mot_appris($mot)] ?? []);
+        if ($trouves) {
+            break;
+        }
     }
-    if (mb_substr($trimmed, 0, 2) === 'ال' && isset($aliases[mb_substr($trimmed, 2)])) {
-        return $aliases[mb_substr($trimmed, 2)];
-    }
-    return null;
+    return $trouves ? array_values(array_unique($trouves)) : null;
 }
 
 // Expands one search term to itself plus any known spelling variant,
@@ -62,7 +99,7 @@ function ai_expand_term_variants(string $term, ?PDO $pdo = null): array
     static $phonetique = [];
     $variants = [$term];
 
-    $arabic = ai_arabic_alias_lookup($term);
+    $arabic = ai_arabic_alias_lookup($term, $pdo);
     if ($arabic !== null) {
         $variants = array_merge($variants, $arabic);
     } elseif ($pdo !== null && ai_est_arabe($term)) {
@@ -852,13 +889,15 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
             $annee = (int)$token;
             continue;
         }
-        $arabe = ai_arabic_alias_lookup($token);
+        $arabe = ai_arabic_alias_lookup($token, $pdo);
         if ($arabe === null && ai_est_arabe($token)) {
             // Car name in Arabic letters, read by sound (هيلكس = HILUX).
             $phonetique = ai_correspondances_phonetiques($pdo, $token, ai_vocabulaire_vehicules($pdo));
-            $arabe = $phonetique ?: null;
+            $arabe = $phonetique ? [$phonetique[0]] : null;
         }
-        $needleTokens[$token] = mb_strtoupper($arabe !== null ? $arabe[0] : $token);
+        // The word itself (Latin letters) and every equivalent from the
+        // dictionary - a word taught from the dashboard can have several.
+        $needleTokens[$token] = array_values(array_unique(array_map('mb_strtoupper', array_merge(ai_est_arabe($token) ? [] : [$token], $arabe ?? [$token]))));
     }
 
     $scored = [];
@@ -866,14 +905,20 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     foreach ($all as $row) {
         $haystack = mb_strtoupper($row['marque'] . ' ' . $row['modele']);
         $score = 0;
-        foreach ($needleTokens as $original => $token) {
+        foreach ($needleTokens as $original => $candidats) {
             // Also letters and digits only: "XLI2024" for "XLI 2024" (production
             // 06/10, the customer's answer was not recognised and the model
             // asked for the Corolla model again).
             $compact = fn($t) => preg_replace('/[^A-Z0-9]/u', '', $t);
-            if (mb_strpos($haystack, $token) !== false
-                || (strlen($compact($token)) >= 4 && strpos($compact($haystack), $compact($token)) !== false)) {
-                $score += strlen($token);
+            $meilleur = 0;
+            foreach ($candidats as $token) {
+                if (mb_strpos($haystack, $token) !== false
+                    || (strlen($compact($token)) >= 4 && strpos($compact($haystack), $compact($token)) !== false)) {
+                    $meilleur = max($meilleur, strlen($token));
+                }
+            }
+            if ($meilleur > 0) {
+                $score += $meilleur;
                 $tokensUtiles[$original] = true;
             }
         }
