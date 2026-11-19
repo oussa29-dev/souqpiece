@@ -378,5 +378,30 @@ if (!$tableMots) {
     }
 }
 
+echo "\n== Vehicle questions in the store owner's order: year, 4x2/4x4, turbo (17/11)\n";
+$suite = [
+    'vigo' => [false, 'annee'],
+    'vigo 2010' => [false, 'traction'],
+    'vigo 2010 4x2' => [true, 'KUN15'],
+    'vigo 2010 4x4' => [true, 'LAN25'],
+    'vigo 2007 2wd' => [true, 'LAN15'],
+    'hilux' => [false, 'traction'],        // same years: no year question
+    'hilux 4x4' => [true, 'LN166'],
+    'vigo كاتكات' => [true, '4WD'],
+    'yaris 2009' => [false, 'modele'],      // nothing left to narrow: the list
+];
+foreach ($suite as $texte => [$unique, $attendu]) {
+    $v = ai_resolve_vehicle($pdo, $texte);
+    $ok = $v['unique'] === $unique && ($unique ? stripos($v['matches'][0]['label'], $attendu) !== false : ($v['question'] ?? null) === $attendu);
+    check("\"$texte\" -> " . ($unique ? $attendu : "asks $attendu"), $ok, [$v['unique'], $v['question'] ?? null, array_column($v['matches'], 'label')]);
+}
+$v = ai_resolve_vehicle($pdo, 'vigo turbo');
+check('"vigo turbo" is a Vigo, not the Nissan PICK UP TURBO, and drops the non-turbo LAN15',
+    $v['matches'] && !array_filter($v['matches'], fn($m) => stripos($m['label'], 'PICK UP') !== false || stripos($m['label'], 'LAN15') !== false), array_column($v['matches'], 'label'));
+$v = ai_resolve_vehicle($pdo, 'vigo sans turbo');
+check('"vigo sans turbo" drops the KUN15 D4D', $v['matches'] && !array_filter($v['matches'], fn($m) => stripos($m['label'], 'KUN15') !== false), array_column($v['matches'], 'label'));
+$v = ai_resolve_vehicle($pdo, 'l200');
+check('"l200" is not found inside "X-TRAIL 2007"', !array_filter($v['matches'], fn($m) => stripos($m['label'], 'X-TRAIL') !== false), array_column($v['matches'], 'label'));
+
 echo "\n---\n$pass passed, $fail failed\n";
 exit($fail > 0 ? 1 : 0);

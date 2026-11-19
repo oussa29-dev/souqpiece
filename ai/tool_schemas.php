@@ -37,7 +37,7 @@ function ai_tool_schemas(): array
         ],
         [
             'name' => 'resolve_vehicle',
-            'description' => 'Resolve free-text vehicle mentions (brand and/or model, in French or transliterated Arabic) to an id_voiture usable by other tools. Returns {unique: bool, matches: [up to 5 ranked candidates]}. `unique` is the deterministic signal for whether the customer needs to be asked to specify the exact model - see rule 9 in your instructions, it is not a judgment call. Pass the year too when the customer gives one ("corolla 2008"): it narrows the candidates by production years. When you ask the customer to choose, name each candidate by its `label` (model and years) - never show an id_voiture. `not_vehicle_words` lists the words of free_text that matched no vehicle: they are almost always the part the customer wants ("اكس تري" in "اكس تري فيقو") - search them with search_products, and never include them in the next resolve_vehicle call.',
+            'description' => 'Resolve free-text vehicle mentions (brand and/or model, in French or transliterated Arabic) to an id_voiture usable by other tools. Returns {unique: bool, matches: [up to 5 ranked candidates]}. `unique` is the deterministic signal for whether the customer needs to be asked to specify the exact model - see rule 9 in your instructions, it is not a judgment call. Pass the year too when the customer gives one ("corolla 2008"): it narrows the candidates by production years. When `unique` is false, `question` names the ONE question to ask if you must ask: "annee" (the year), "traction" (4x2 or 4x4), "turbo" (turbo/D4D or not) or "modele" (list the candidates). Years, 4x2/4x4 and turbo words in free_text narrow the candidates. When you list candidates, name each by its `label` (model and years) - never show an id_voiture. `not_vehicle_words` lists the words of free_text that matched no vehicle: they are almost always the part the customer wants ("اكس تري" in "اكس تري فيقو") - search them with search_products, and never include them in the next resolve_vehicle call.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -99,6 +99,19 @@ function ai_arg_int_optionnel(array $args, string $cle): ?int
     return $valeur > 0 ? $valeur : null;
 }
 
+// What to ask when the vehicle must be narrowed down (`question` of
+// ai_resolve_vehicle): one short question at a time, in the store owner's
+// order - year, then 4x2/4x4, then turbo - and the list of models only last.
+function ai_consigne_question_vehicule(string $question): string
+{
+    $consignes = [
+        'annee' => 'When you ask, ask ONLY the year of the vehicle, in one short question - do not list the models.',
+        'traction' => 'When you ask, ask ONLY whether it is 4x2 (2WD) or 4x4 (4WD), in one short question - do not list the models.',
+        'turbo' => 'When you ask, ask ONLY whether the engine is turbo (D4D) or not, in one short question - do not list the models.',
+    ];
+    return $consignes[$question] ?? 'When you ask, list the candidates numbered so the customer can answer with the number.';
+}
+
 // $tarifGros: the customer is a registered wholesale customer - product
 // prices become wholesale prices (ai_appliquer_tarif_gros).
 function ai_build_tool_dispatcher(PDO $pdo, bool $tarifGros = false): callable
@@ -123,7 +136,7 @@ function ai_build_tool_dispatcher(PDO $pdo, bool $tarifGros = false): callable
                     // Rule 9 in the prompt alone was skipped (04/11: "kit
                     // embrayage t6" got the Ranger/BT50 question, while the
                     // search finds the T6 kit in stock).
-                    $r['next_step'] = 'Several vehicles match. If the customer named a part, do NOT ask yet: call search_products now, without id_voiture, with the part words plus the customer\'s vehicle words as query. Ask the customer to choose only if that search returns nothing relevant.';
+                    $r['next_step'] = 'Several vehicles match. If the customer named a part, do NOT ask yet: call search_products now, without id_voiture, with the part words plus the customer\'s vehicle words as query. Ask the customer only if that search returns nothing relevant. ' . ai_consigne_question_vehicule($r['question'] ?? 'modele');
                 }
                 return $r;
             case 'get_product':

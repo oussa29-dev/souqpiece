@@ -949,6 +949,86 @@ function ai_produits_meme_designation(PDO $pdo, array $designations, array $excl
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+// A customer's word that describes the vehicle rather than naming it:
+// '4WD', '2WD', 'turbo', 'sans' (before turbo: "sans turbo", "بلا تيربو"),
+// or null.
+function ai_attribut_vehicule(string $mot): ?string
+{
+    $mot = mb_strtoupper(trim($mot));
+    if (preg_match('/^(4[X*×]4|4WD|4W4|كاتكات|كاتكا)$/u', $mot)) {
+        return '4WD';
+    }
+    if (preg_match('/^(4[X*×]2|2WD|4W2)$/u', $mot)) {
+        return '2WD';
+    }
+    if (in_array($mot, ['TURBO', 'D4D', 'تيربو', 'توربو', 'طوربو', 'تربو', 'تيربوا'], true)) {
+        return 'turbo';
+    }
+    if (in_array($mot, ['SANS', 'BLA', 'BALA', 'بلا', 'بدون'], true)) {
+        return 'sans';
+    }
+    return null;
+}
+
+// Drive written in a model name: '4WD', '2WD' or null (not written).
+function ai_traction_voiture(string $modele): ?string
+{
+    $modele = mb_strtoupper($modele);
+    if (preg_match('/\b(4WD|4W4)\b/', $modele)) {
+        return '4WD';
+    }
+    if (preg_match('/\b(2WD|4W2)\b/', $modele)) {
+        return '2WD';
+    }
+    return null;
+}
+
+// Engine written in a model name: 'turbo' (TURBO, D4D, Toyota KUN = D-4D),
+// 'atmo' (Toyota LAN = 2L/3L/5L, no turbo), 'mixte' (both codes on one
+// row: "VIGO 4WD LAN25 KUN25") or null (not written).
+function ai_turbo_voiture(string $modele): ?string
+{
+    $modele = mb_strtoupper($modele);
+    $turbo = (bool)preg_match('/TURBO|D4D|\bKUN\d/', $modele);
+    $atmo = (bool)preg_match('/\bLAN\d/', $modele);
+    if ($turbo && $atmo) {
+        return 'mixte';
+    }
+    return $turbo ? 'turbo' : ($atmo ? 'atmo' : null);
+}
+
+// The ONE question to ask when several vehicles remain, in the store
+// owner's order (17/11): the year, then 4x2 or 4x4, then turbo or not -
+// each only if the customer has not said it and the answer would narrow
+// the candidates. 'modele' when none would: list them to choose.
+function ai_question_vehicule(array $candidats, bool $anneeConnue, bool $tractionConnue, bool $turboConnu): string
+{
+    // A year narrows them only if some year belongs to some candidates and
+    // not others (NCP90 2007-2011 and NCP92 2007-2014: 2012 does).
+    if (!$anneeConnue) {
+        $avecAnnees = array_filter($candidats, fn($v) => $v['annee_debut'] !== null && $v['annee_fin'] !== null);
+        if (count($avecAnnees) > 1) {
+            $debut = min(array_map(fn($v) => (int)$v['annee_debut'], $avecAnnees));
+            $fin = max(array_map(fn($v) => (int)$v['annee_fin'], $avecAnnees));
+            for ($an = $debut; $an <= $fin; $an++) {
+                $dedans = count(array_filter($avecAnnees, fn($v) => (int)$v['annee_debut'] <= $an && $an <= (int)$v['annee_fin']));
+                if ($dedans > 0 && $dedans < count($avecAnnees)) {
+                    return 'annee';
+                }
+            }
+        }
+    }
+    $tractions = array_unique(array_filter(array_map(fn($v) => ai_traction_voiture($v['modele']), $candidats)));
+    if (!$tractionConnue && count($tractions) > 1) {
+        return 'traction';
+    }
+    $turbos = array_unique(array_filter(array_map(fn($v) => ai_turbo_voiture($v['modele']), $candidats)));
+    if (!$turboConnu && count($turbos) > 1) {
+        return 'turbo';
+    }
+    return 'modele';
+}
+
 // Returns ['unique' => bool, 'matches' => [...]]. `unique` is the
 // deterministic signal the assistant prompt is required to obey (see rule
 // 9 in prompt.php) instead of judging case-by-case whether a vehicle name
@@ -988,9 +1068,27 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
         }
         $tokens[] = $mots[$i++];
     }
-    foreach ($tokens as $token) {
+    // 4x2/4x4 and turbo narrow the candidates like the year, they are not
+    // matched as text: "vigo turbo" scored the Nissan "PICK UP TURBO 2WD"
+    // (5 letters) above every Vigo (4).
+    $traction = null;
+    $turbo = null;
+    foreach ($tokens as $i => $token) {
         if (preg_match('/^(19|20)\d{2}$/', $token)) {
             $annee = (int)$token;
+            continue;
+        }
+        $attribut = ai_attribut_vehicule($token);
+        if ($attribut === 'sans' && ai_attribut_vehicule($tokens[$i + 1] ?? '') === 'turbo') {
+            $turbo = false;
+            continue;
+        }
+        if ($attribut === '4WD' || $attribut === '2WD') {
+            $traction = $attribut;
+            continue;
+        }
+        if ($attribut === 'turbo') {
+            $turbo = $turbo ?? true;
             continue;
         }
         $arabe = ai_arabic_alias_lookup($token, $pdo);
@@ -1013,11 +1111,19 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
             // Also letters and digits only: "XLI2024" for "XLI 2024" (production
             // 06/10, the customer's answer was not recognised and the model
             // asked for the Corolla model again).
+            // From the start of a word only: "L200" was found inside
+            // "X-TRAIL 2007" (XTRAI-L200-7) and pushed the L200s out.
             $compact = fn($t) => preg_replace('/[^A-Z0-9]/u', '', $t);
+            $mots = array_values(array_filter(array_map($compact, explode(' ', $haystack)), fn($m) => $m !== ''));
+            $debutsDeMot = [];
+            foreach ($mots as $k => $m) {
+                $debutsDeMot[] = implode('', array_slice($mots, $k));
+            }
             $meilleur = 0;
             foreach ($candidats as $token) {
-                if (mb_strpos($haystack, $token) !== false
-                    || (strlen($compact($token)) >= 4 && strpos($compact($haystack), $compact($token)) !== false)) {
+                $c = $compact($token);
+                $compactTrouve = strlen($c) >= 4 && count(array_filter($debutsDeMot, fn($d) => strpos($d, $c) === 0)) > 0;
+                if (mb_strpos($haystack, $token) !== false || $compactTrouve) {
                     $meilleur = max($meilleur, strlen($token));
                 }
             }
@@ -1042,6 +1148,17 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
             $scored = $dansLesAnnees;
         }
     }
+    // Same for the drive and the turbo: only candidates written for the
+    // OTHER drive / engine are dropped (a model without either in its name
+    // stays), and never all of them.
+    if ($traction !== null) {
+        $filtre = array_values(array_filter($scored, fn($row) => !in_array(ai_traction_voiture($row['modele']), [$traction === '4WD' ? '2WD' : '4WD'], true)));
+        $scored = $filtre ?: $scored;
+    }
+    if ($turbo !== null) {
+        $filtre = array_values(array_filter($scored, fn($row) => ai_turbo_voiture($row['modele']) !== ($turbo ? 'atmo' : 'turbo')));
+        $scored = $filtre ?: $scored;
+    }
 
     usort($scored, fn($a, $b) => $b['score'] <=> $a['score']);
     $matches = array_slice($scored, 0, 5);
@@ -1062,6 +1179,12 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     $horsVehicule = array_values(array_diff(array_keys($needleTokens), array_keys($tokensUtiles)));
 
     $retour = ['unique' => $unique, 'matches' => $matches, 'not_vehicle_words' => $horsVehicule];
+    if (!$unique && count($matches) >= 2) {
+        $retour['question'] = ai_question_vehicule(
+            array_values(array_filter($scored, fn($row) => $row['score'] === $matches[0]['score'])),
+            $annee !== null, $traction !== null, $turbo !== null
+        );
+    }
     // No word is a vehicle: the model sent the part as the vehicle ("اكس
     // اتري" after a Yaris was already chosen) and then told the customer the
     // "car" was not recognised instead of searching the part.
