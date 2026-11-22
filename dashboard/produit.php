@@ -128,6 +128,8 @@
             </div>
         
             <a href="ajouter-produit.php" class="btn-site">Ajouter un produit</a>
+            <?php $filtreAccueil = isset($_GET['accueil']); ?>
+            <a href="produit.php<?= $filtreAccueil ? '' : '?accueil=1' ?>" class="btn-site" style="margin-left:8px"><?= $filtreAccueil ? 'Tous les produits' : 'Produits sur l\'accueil' ?></a>
             <table>
                 <thead>
                     <tr>
@@ -139,6 +141,7 @@
                         <th>categorie</th>
                         <th>sous categorie</th>
                         <th>stock</th>
+                        <th>accueil</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -179,6 +182,18 @@
                         $params[':reference'] = '%' . $reference . '%';
                     }
                 
+                    // Produits de la page d'accueil (numero 1-8, include/accueil.php) :
+                    // un par ligne, dans l'ordre de l'accueil, sans les autres filtres.
+                    if ($filtreAccueil) {
+                        $conditions = ['produit.trie > 0'];
+                        $params = [];
+                        $query = '
+                            SELECT produit.*, (SELECT MIN(p2.id_voiture) FROM pvd p2 WHERE p2.id_produit = produit.id_produit) as voiture
+                            FROM produit
+                            WHERE produit.trie > 0
+                            ORDER BY produit.id_categorie, produit.trie
+                        ';
+                    } else {
                     // Construire la requête SQL avec les conditions
                     $query = '
                         SELECT produit.*, pvd.id_voiture as voiture
@@ -187,6 +202,7 @@
                     ';
                     if (!empty($conditions)) {
                         $query .= ' WHERE ' . implode(' AND ', $conditions);
+                    }
                     }
                     $query .= ' LIMIT ' . (int)$itemsPerPage . ' OFFSET ' . (int)$offset;
                 
@@ -226,6 +242,7 @@
                                 <td><?=$categorie?></td>
                                 <td><?=$sous?></td>
                                 <td><span class="spanOrange"><?= $produit['stock'] == 1 ? 'disponible' : 'non disponible' ?></span></td>
+                                <td><?= (int)$produit['trie'] > 0 ? '<span class="spanGreen" title="Numéro sur la page d\'accueil">n° ' . (int)$produit['trie'] . '</span>' : '' ?></td>
                                 <td><a href="ajouter-produit.php?id=<?=$produit['id_produit']?>" class="btn-mod">Mod</a></td>
                                 <td><a href="supprimer/sup-produit.php?id=<?=$produit['id_produit']?>" class="btn-sup">Sup</a></td>
                             </tr>
@@ -239,7 +256,7 @@
 
                <?php
             // Gestion de la pagination
-            $totalQuery = '
+            $totalQuery = $filtreAccueil ? 'SELECT COUNT(*) FROM produit' : '
                 SELECT COUNT(*)
                 FROM produit
                 LEFT JOIN pvd ON produit.id_produit = pvd.id_produit
@@ -257,6 +274,7 @@
             if (isset($_GET['sous_categorie'])) $baseUrl .= 'sous_categorie=' . urlencode($_GET['sous_categorie']) . '&';
             if (isset($_GET['categorie'])) $baseUrl .= 'categorie=' . urlencode($_GET['categorie']) . '&';
             if (isset($_GET['reference'])) $baseUrl .= 'reference=' . urlencode($_GET['reference']) . '&';
+            if ($filtreAccueil) $baseUrl .= 'accueil=1&';
 
             // Affichage de la pagination
             echo '<div class="pagination">';

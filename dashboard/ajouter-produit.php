@@ -40,6 +40,7 @@
         require_once('database.php');
         require_once('include/pvd_extraction.php');
         require_once('include/photos_produit.php');
+        require_once('include/accueil.php');
 
         // La ligne "Voiture" vide du formulaire poste la valeur litterale
         // "modele" (option "Selectionner un modele") : !empty() la prenait
@@ -116,6 +117,10 @@
                 $produit['prix'] = $_POST['prix'] ?? $produit['prix'];
                 $produit['id_categorie'] = $_POST['categorie'] ?? $produit['id_categorie'];
                 $produit['id_sous_categorie'] = $_POST['sous_categorie'] ?? $produit['id_sous_categorie'];
+                $produit['trie'] = accueil_lire_numero($_POST['trie'] ?? '') ?? $produit['trie'];
+                if (accueil_lire_numero($_POST['trie'] ?? '') === null) {
+                    $erreurs[] = 'Le numéro sur la page d\'accueil doit être entre 1 et ' . ACCUEIL_MAX . ' (vide = pas sur l\'accueil).';
+                }
 
                 if (trim($_POST['libelle'] ?? '') === '') {
                     $erreurs[] = 'Le libellé est obligatoire.';
@@ -477,9 +482,11 @@
                     ?>
                     <label for="quantite">Quantité en stock</label>
                     <input type="number" name="quantite" id="quantite" min="0" value="<?= $quantiteInitiale ?>"><br>
-    
+
+                    <?php accueil_champ($pdo, (int)$produit['trie'], (int)$produit['id_produit']); ?>
+
                     <!--========img================-->
-    
+
                     <?php photos_produit_afficher($produit); ?>
 
                     <input type="submit" value="modifier" name="modifier">
@@ -489,11 +496,9 @@
 
                 if(isset($_POST['modifier']) && empty($erreurs)){
 
-                    // trie n'est plus dans le formulaire (retire volontairement -
-                    // c'est une mise en avant editoriale, pas une saisie
-                    // produit courante). Preserver la valeur existante plutot
-                    // que l'ecraser avec un champ qui n'est plus soumis.
-                    $trie = $produit['trie'];
+                    // Numero sur la page d'accueil (include/accueil.php) :
+                    // 0 = pas sur l'accueil. Valide plus haut.
+                    $trie = accueil_lire_numero($_POST['trie'] ?? '') ?? 0;
                     $libelle = $_POST['libelle'];
                     $marquepiece = marque_saisie((string)$_POST['marquepiece']);
                     $prix = $_POST['prix'];
@@ -579,6 +584,8 @@
 
                     if(!empty($libelle) && !empty($prix)){
 
+                        // One product per number and category on the home page.
+                        accueil_liberer_numero($pdo, (int)$categorie, $trie, (int)$id);
                         $sqlModifier = 'UPDATE produit SET trie=? ,libelle=?,marquepiece=?,prix=?,id_categorie=?,id_sous_categorie=?,stock=?,quantite=?,pays_origine=?';
                         $params = [$trie,$libelle,$marquepiece,$prix,$categorie,$sous,$stock,$quantite,$paysProduit];
                         // Mise à jour des images additionnelles si elles sont renseignées
@@ -884,8 +891,11 @@
             if (($_POST['categorie'] ?? 'categorie') === 'categorie' || trim($_POST['categorie'] ?? '') === '') {
                 $erreurs[] = 'La catégorie est obligatoire.';
             }
+            if (accueil_lire_numero($_POST['trie'] ?? '') === null) {
+                $erreurs[] = 'Le numéro sur la page d\'accueil doit être entre 1 et ' . ACCUEIL_MAX . ' (vide = pas sur l\'accueil).';
+            }
 
-            $refsPost = array_filter($_POST['references'] ?? [], fn($v) => trim($v) !== '');
+            $refsPost =array_filter($_POST['references'] ?? [], fn($v) => trim($v) !== '');
             if (empty($refsPost)) {
                 $erreurs[] = 'Au moins une référence est obligatoire.';
             }
@@ -1141,6 +1151,8 @@
                 <label for="quantite">Quantité en stock</label>
                 <input type="number" name="quantite" id="quantite" min="0" value="0"><br>
 
+                <?php accueil_champ($pdo, (int)(accueil_lire_numero($_POST['trie'] ?? '') ?? 0), null); ?>
+
                 <!--========img================-->
 
                 <?php photos_produit_afficher(null); ?>
@@ -1152,10 +1164,9 @@
             <?php
                 if (isset($_POST['ajouter']) && empty($erreurs)) {
 
-                    // trie n'est plus dans le formulaire (mise en avant
-                    // editoriale, pas une saisie produit courante) - un
-                    // nouveau produit n'est jamais mis en avant par defaut.
-                    $trie = 0;
+                    // Numero sur la page d'accueil (include/accueil.php) :
+                    // 0 = pas sur l'accueil. Valide plus haut.
+                    $trie = accueil_lire_numero($_POST['trie'] ?? '') ?? 0;
                     $libelle = $_POST['libelle'];
                     $marquepiece = marque_saisie((string)$_POST['marquepiece']);
                     $prix = $_POST['prix'];
@@ -1218,6 +1229,8 @@
 
                         $sqlProduit->execute($params);
                         $id_produit = $pdo->lastInsertId();
+                        // One product per number and category on the home page.
+                        accueil_liberer_numero($pdo, (int)$categorie, $trie, (int)$id_produit);
                         
                         // Same field-composition logic as the edit form - see
                         // PLAN_PVD_DESCRIPTION.md §3. Declared here rather than
