@@ -338,6 +338,9 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     $searchTerm = trim($query);
     $normalized = str_replace(' ', '*', $searchTerm);
     $terms = array_values(array_filter(array_map('trim', explode('*', $normalized))));
+    // The engine the customer named (turbo/D4D or 5L/no turbo), read before
+    // a taught phrase swallows the words ("vigo d4d" -> the vehicle).
+    $moteur = ai_moteur_demande($terms);
     // Phrases taught by the store owner, before the linking words below are
     // dropped ("bras de force"). A vehicle phrase gives the vehicle, unless
     // it is the whole query (nothing left to search).
@@ -345,6 +348,22 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     if ($regroupes) {
         $terms = $regroupes;
         $id_voiture = $id_voiture ?? $voitureApprise;
+    }
+    // "turbo", "تيربو", "sans"/"بلا" before them describe the engine, they are
+    // never in a product name: as text they made "culasse vigo turbo" find
+    // nothing. The engine filter below uses them instead. D4D or 5L stay:
+    // product names do write them.
+    $sansMotsMoteur = [];
+    foreach ($terms as $i => $t) {
+        $attribut = ai_attribut_vehicule($t);
+        $estMotTurbo = $attribut === 'turbo' && !preg_match('/^D-?4D$/i', $t);
+        $estNegation = $attribut === 'sans' && ai_attribut_vehicule($terms[$i + 1] ?? '') === 'turbo';
+        if (!$estMotTurbo && !$estNegation) {
+            $sansMotsMoteur[] = $t;
+        }
+    }
+    if ($sansMotsMoteur) {
+        $terms = $sansMotsMoteur;
     }
     // Linking words are not part names: "pochette de joints" must not
     // require "DE" in the product, nor "plaquette تاع hilux" "تاع".
@@ -454,6 +473,23 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
             $conditions[] = 'pvd.id_voiture = ?';
             $params[] = $id_voiture;
         }
+    }
+    // Engine: a part written for the other engine is for the other version
+    // (store owner 22/11: "VIGO 4WD LAN25 KUN25" holds the D4D turbo and the
+    // 5L in one vehicle, and "culasse vigo d4d" listed "CULASSE HILUX 5L
+    // VIDE" first). Without an engine word, the vehicle's own engine decides
+    // (KUN15 D4D: turbo; LAN15: not); a vehicle holding both stays neutral.
+    if ($moteur === null && $id_voiture !== null) {
+        $moteurVoiture = ai_turbo_voiture((string)$pdo->query('SELECT modele FROM voiture WHERE id_voiture = ' . (int)$id_voiture)->fetchColumn());
+        $moteur = in_array($moteurVoiture, ['turbo', 'atmo'], true) ? $moteurVoiture : null;
+    }
+    if ($moteur !== null) {
+        // Removed only when its name or descriptions name the other engine
+        // and never the wanted one: "KUN25/LAN25" stays for both.
+        $texte = "CONCAT_WS(' ', produit.libelle, (SELECT GROUP_CONCAT(px.description SEPARATOR ' ') FROM pvd px WHERE px.id_produit = produit.id_produit))";
+        $conditions[] = "NOT ($texte REGEXP ? AND $texte NOT REGEXP ?)";
+        $params[] = $moteur === 'turbo' ? AI_REGEXP_MOTEUR_ATMO : AI_REGEXP_MOTEUR_TURBO;
+        $params[] = $moteur === 'turbo' ? AI_REGEXP_MOTEUR_TURBO : AI_REGEXP_MOTEUR_ATMO;
     }
     if ($id_sous_categorie !== null) {
         $conditions[] = 'produit.id_sous_categorie = ?';
@@ -970,6 +1006,35 @@ function ai_attribut_vehicule(string $mot): ?string
     return null;
 }
 
+// Engine written in a product's name or description, as whole words: the
+// Toyota D-4D turbo diesel (D4D, KUN.., 1KD, 2KD, TURBO) or the engines
+// without turbo (5L, 3L, 2L, LAN.., LN..).
+const AI_REGEXP_MOTEUR_TURBO = '(^|[^A-Z0-9])(D-?4D|KUN[0-9]*|1KD|2KD|TURBO)([^A-Z0-9]|$)';
+const AI_REGEXP_MOTEUR_ATMO = '(^|[^A-Z0-9])(5L|3L|2L|LAN[0-9]+|LN[0-9]+)([^A-Z0-9]|$)';
+
+// The engine a customer's words name: 'turbo' (turbo, D4D, 1KD, 2KD,
+// تيربو...), 'atmo' (5L, 3L, 2L, "sans turbo", "بلا تيربو"), or null (none,
+// or both).
+function ai_moteur_demande(array $mots): ?string
+{
+    $turbo = false;
+    $atmo = false;
+    $mots = array_values($mots);
+    foreach ($mots as $i => $mot) {
+        $majuscule = mb_strtoupper(trim($mot));
+        $attribut = ai_attribut_vehicule($mot);
+        if ($attribut === 'sans' && ai_attribut_vehicule($mots[$i + 1] ?? '') === 'turbo') {
+            $atmo = true;
+        } elseif (($attribut === 'turbo' || in_array($majuscule, ['1KD', '2KD', 'D-4D'], true))
+            && ai_attribut_vehicule($mots[$i - 1] ?? '') !== 'sans') {
+            $turbo = true;
+        } elseif (in_array($majuscule, ['5L', '3L', '2L'], true)) {
+            $atmo = true;
+        }
+    }
+    return $turbo === $atmo ? null : ($turbo ? 'turbo' : 'atmo');
+}
+
 // Drive written in a model name: '4WD', '2WD' or null (not written).
 function ai_traction_voiture(string $modele): ?string
 {
@@ -1073,12 +1138,15 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     // (5 letters) above every Vigo (4).
     $traction = null;
     $turbo = null;
+    $appris = ai_mots_appris($pdo);
     foreach ($tokens as $i => $token) {
         if (preg_match('/^(19|20)\d{2}$/', $token)) {
             $annee = (int)$token;
             continue;
         }
-        $attribut = ai_attribut_vehicule($token);
+        // A word the store owner taught is read as he taught it, before the
+        // built-in meaning of turbo/D4D/4x4 ("d4d" -> a Vigo was ignored).
+        $attribut = isset($appris[ai_cle_mot_appris($token)]) ? null : ai_attribut_vehicule($token);
         if ($attribut === 'sans' && ai_attribut_vehicule($tokens[$i + 1] ?? '') === 'turbo') {
             $turbo = false;
             continue;

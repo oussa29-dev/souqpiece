@@ -403,5 +403,34 @@ check('"vigo sans turbo" drops the KUN15 D4D', $v['matches'] && !array_filter($v
 $v = ai_resolve_vehicle($pdo, 'l200');
 check('"l200" is not found inside "X-TRAIL 2007"', !array_filter($v['matches'], fn($m) => stripos($m['label'], 'X-TRAIL') !== false), array_column($v['matches'], 'label'));
 
+echo "\n== Engine: D4D/turbo and 5L parts not mixed (store owner 22/11)\n";
+check('engine words read: turbo, d4d, 5L, "بلا تيربو", none, both',
+    ai_moteur_demande(['culasse', 'vigo', 'turbo']) === 'turbo' && ai_moteur_demande(['vigo', 'D4D']) === 'turbo'
+    && ai_moteur_demande(['vigo', '5L']) === 'atmo' && ai_moteur_demande(['vigo', 'بلا', 'تيربو']) === 'atmo'
+    && ai_moteur_demande(['culasse', 'vigo']) === null && ai_moteur_demande(['d4d', '5l']) === null);
+$sansAutreMoteur = fn(array $r, string $autre, string $voulu) => !array_filter($r, fn($p) => preg_match("/$autre/", $p['libelle']) && !preg_match("/$voulu/", $p['libelle']));
+$kun15 = (int)$pdo->query("SELECT id_voiture FROM voiture WHERE REPLACE(modele, ' ', '') = 'VIGO2WDKUN15D4D'")->fetchColumn();
+$r = ai_search_products($pdo, 'culasse', $kun15, null, 20);
+check('"culasse" on the Vigo KUN15 D4D: no part named for the 5L (was "CULASSE HILUX 5L VIDE" first)', $r && $sansAutreMoteur($r, '\b5L\b|LAN\d', 'D4D|KUN'), array_column($r, 'libelle'));
+$r = ai_search_products($pdo, 'culasse vigo turbo', null, null, 20);
+check('"culasse vigo turbo" finds D4D culasses ("turbo" is not searched as text)', $r && $sansAutreMoteur($r, '\b5L\b|LAN\d', 'D4D|KUN') && array_filter($r, fn($p) => stripos($p['libelle'], 'CULASSE') !== false), array_column($r, 'libelle'));
+$r = ai_search_products($pdo, 'culasse vigo 5l', null, null, 20);
+check('"culasse vigo 5l": no part named for the D4D', $r && $sansAutreMoteur($r, 'D4D|KUN\d', '\b5L\b|LAN'), array_column($r, 'libelle'));
+
+if ($tableMots) {
+    $pdo->exec("DELETE FROM ai_mot_appris WHERE mot = 'zzd4d'");
+    $pdo->exec("INSERT INTO ai_mot_appris (type, mot, equivalent) VALUES ('voiture', 'zzd4d', 'VIGO 2WD KUN15 D4D')");
+    $pdo->exec("DELETE FROM ai_mot_appris WHERE mot = 'turbo'");
+    $pdo->exec("INSERT INTO ai_mot_appris (type, mot, equivalent) VALUES ('voiture', 'turbo', 'VIGO 2WD KUN15 D4D')");
+    ai_mots_appris($pdo, true);
+    try {
+        $v = ai_resolve_vehicle($pdo, 'vigo turbo');
+        check('a word the store owner taught ("turbo" -> KUN15) wins over its built-in meaning', $v['unique'] && (int)$v['matches'][0]['id_voiture'] === $kun15, array_column($v['matches'], 'label'));
+    } finally {
+        $pdo->exec("DELETE FROM ai_mot_appris WHERE mot IN ('zzd4d', 'turbo')");
+        ai_mots_appris($pdo, true);
+    }
+}
+
 echo "\n---\n$pass passed, $fail failed\n";
 exit($fail > 0 ? 1 : 0);
