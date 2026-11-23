@@ -329,7 +329,9 @@ function ai_fuzzy_libelle_fallback(PDO $pdo, string $searchText, int $limit = 20
     return array_slice(array_keys($scored), 0, $limit);
 }
 
-function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?int $id_sous_categorie = null, int $limit = 8, ?int $min_price = null, ?int $max_price = null): array
+// $moteur_vehicule: the engine resolve_vehicle understood ('turbo' or
+// 'atmo'), passed on by the model - the query alone may no longer say it.
+function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?int $id_sous_categorie = null, int $limit = 8, ?int $min_price = null, ?int $max_price = null, ?string $moteur_vehicule = null): array
 {
     $limit = max(1, min($limit, 20));
 
@@ -341,6 +343,8 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     // The engine the customer named (turbo/D4D or 5L/no turbo), read before
     // a taught phrase swallows the words ("vigo d4d" -> the vehicle).
     $moteur = ai_moteur_demande($terms);
+    $vigoSeul = $moteur === null && (bool)array_filter($terms, 'ai_est_mot_vigo')
+        && !array_filter($terms, fn($t) => preg_match('/^(KUN|LAN|LN)\d+$/i', $t));
     // Phrases taught by the store owner, before the linking words below are
     // dropped ("bras de force"). A vehicle phrase gives the vehicle, unless
     // it is the whole query (nothing left to search).
@@ -479,9 +483,18 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     // 5L in one vehicle, and "culasse vigo d4d" listed "CULASSE HILUX 5L
     // VIDE" first). Without an engine word, the vehicle's own engine decides
     // (KUN15 D4D: turbo; LAN15: not); a vehicle holding both stays neutral.
+    // Then the engine resolve_vehicle understood, then the vehicle's own,
+    // and last "vigo" alone, which means the 5L (store owner, 23/11: "كي يقول
+    // vigo وحدها معناها 5L، كي يزيدلها d4d ولا تربو تتبدل").
+    if ($moteur === null && in_array($moteur_vehicule, ['turbo', 'atmo'], true)) {
+        $moteur = $moteur_vehicule;
+    }
     if ($moteur === null && $id_voiture !== null) {
         $moteurVoiture = ai_turbo_voiture((string)$pdo->query('SELECT modele FROM voiture WHERE id_voiture = ' . (int)$id_voiture)->fetchColumn());
         $moteur = in_array($moteurVoiture, ['turbo', 'atmo'], true) ? $moteurVoiture : null;
+    }
+    if ($moteur === null && $vigoSeul) {
+        $moteur = 'atmo';
     }
     if ($moteur !== null) {
         // Removed only when its name or descriptions name the other engine
@@ -1035,6 +1048,16 @@ function ai_moteur_demande(array $mots): ?string
     return $turbo === $atmo ? null : ($turbo ? 'turbo' : 'atmo');
 }
 
+// The customer's word for the Vigo alone ("vigo", "فيقو", "فيغو"), not a
+// phrase containing it.
+function ai_est_mot_vigo(string $mot): bool
+{
+    if (ai_normalize_term($mot) === 'vigo') {
+        return true;
+    }
+    return in_array('vigo', array_map('ai_normalize_term', ai_search_arabic_aliases()[trim($mot)] ?? []), true);
+}
+
 // Drive written in a model name: '4WD', '2WD' or null (not written).
 function ai_traction_voiture(string $modele): ?string
 {
@@ -1205,6 +1228,16 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
         }
     }
 
+    // "vigo" alone means the 5L (store owner, 23/11) - unless the customer
+    // named the engine or another vehicle word (a chassis code: "vigo
+    // kun15") matched.
+    if ($turbo === null) {
+        $motsVigo = array_filter(array_keys($needleTokens), 'ai_est_mot_vigo');
+        if ($motsVigo && !array_diff(array_keys($tokensUtiles), $motsVigo)) {
+            $turbo = false;
+        }
+    }
+
     if ($annee !== null) {
         $dansLesAnnees = array_values(array_filter($scored, function ($row) use ($annee) {
             return $row['annee_debut'] !== null && $row['annee_fin'] !== null
@@ -1247,6 +1280,12 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     $horsVehicule = array_values(array_diff(array_keys($needleTokens), array_keys($tokensUtiles)));
 
     $retour = ['unique' => $unique, 'matches' => $matches, 'not_vehicle_words' => $horsVehicule];
+    // The engine understood - the model passes it to search_products, whose
+    // query no longer says it once the vehicle is chosen ("VIGO 4WD LAN25
+    // KUN25" holds both engines).
+    if ($turbo !== null && $matches) {
+        $retour['engine'] = $turbo ? 'turbo' : 'non_turbo';
+    }
     if (!$unique && count($matches) >= 2) {
         $retour['question'] = ai_question_vehicule(
             array_values(array_filter($scored, fn($row) => $row['score'] === $matches[0]['score'])),

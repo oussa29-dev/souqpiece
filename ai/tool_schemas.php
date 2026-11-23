@@ -20,6 +20,7 @@ function ai_tool_schemas(): array
                     'limit' => ['type' => 'integer', 'description' => 'Max results to return, default 8, max 20.'],
                     'min_price' => ['type' => 'integer', 'description' => 'Optional: only return products priced at or above this amount (DZD).'],
                     'max_price' => ['type' => 'integer', 'description' => 'Optional: only return products priced at or below this amount (DZD). When set (with or without min_price), results are sorted cheapest first instead of the default stock-first order.'],
+                    'engine' => ['type' => 'string', 'enum' => ['turbo', 'non_turbo'], 'description' => 'Optional: the `engine` field resolve_vehicle returned for this vehicle - always pass it on when it was given, so parts for the other engine are left out.'],
                 ],
                 'required' => ['query'],
             ],
@@ -37,7 +38,7 @@ function ai_tool_schemas(): array
         ],
         [
             'name' => 'resolve_vehicle',
-            'description' => 'Resolve free-text vehicle mentions (brand and/or model, in French or transliterated Arabic) to an id_voiture usable by other tools. Returns {unique: bool, matches: [up to 5 ranked candidates]}. `unique` is the deterministic signal for whether the customer needs to be asked to specify the exact model - see rule 9 in your instructions, it is not a judgment call. Pass the year too when the customer gives one ("corolla 2008"): it narrows the candidates by production years. When `unique` is false, `question` names the ONE question to ask if you must ask: "annee" (the year), "traction" (4x2 or 4x4), "turbo" (turbo/D4D or not) or "modele" (list the candidates). Years, 4x2/4x4 and turbo words in free_text narrow the candidates. When you list candidates, name each by its `label` (model and years) - never show an id_voiture. `not_vehicle_words` lists the words of free_text that matched no vehicle: they are almost always the part the customer wants ("اكس تري" in "اكس تري فيقو") - search them with search_products, and never include them in the next resolve_vehicle call.',
+            'description' => 'Resolve free-text vehicle mentions (brand and/or model, in French or transliterated Arabic) to an id_voiture usable by other tools. Returns {unique: bool, matches: [up to 5 ranked candidates]}. `unique` is the deterministic signal for whether the customer needs to be asked to specify the exact model - see rule 9 in your instructions, it is not a judgment call. Pass the year too when the customer gives one ("corolla 2008"): it narrows the candidates by production years. When `unique` is false, `question` names the ONE question to ask if you must ask: "annee" (the year), "traction" (4x2 or 4x4), "turbo" (turbo/D4D or not) or "modele" (list the candidates). Years, 4x2/4x4 and turbo words in free_text narrow the candidates. `engine` ("turbo" or "non_turbo") is the engine understood - "vigo" alone means the 5L, non_turbo - pass it to search_products as `engine`. When you list candidates, name each by its `label` (model and years) - never show an id_voiture. `not_vehicle_words` lists the words of free_text that matched no vehicle: they are almost always the part the customer wants ("اكس تري" in "اكس تري فيقو") - search them with search_products, and never include them in the next resolve_vehicle call.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -126,7 +127,8 @@ function ai_build_tool_dispatcher(PDO $pdo, bool $tarifGros = false): callable
                     ai_arg_int_optionnel($args, 'id_sous_categorie'),
                     ai_arg_int_optionnel($args, 'limit') ?? 8,
                     ai_arg_int_optionnel($args, 'min_price'),
-                    ai_arg_int_optionnel($args, 'max_price')
+                    ai_arg_int_optionnel($args, 'max_price'),
+                    ['turbo' => 'turbo', 'non_turbo' => 'atmo'][(string)($args['engine'] ?? '')] ?? null
                 );
             case 'lookup_by_reference':
                 return ai_lookup_by_reference($pdo, (string)($args['reference'] ?? ''));

@@ -381,7 +381,8 @@ if (!$tableMots) {
 echo "\n== Vehicle questions in the store owner's order: year, 4x2/4x4, turbo (17/11)\n";
 $suite = [
     'vigo' => [false, 'annee'],
-    'vigo 2010' => [false, 'traction'],
+    'vigo 2010' => [true, 'LAN25'],         // "vigo" alone = 5L: in 2010 only the 4WD (LAN15 ends 2008)
+    'vigo 2010 turbo' => [false, 'traction'],
     'vigo 2010 4x2' => [true, 'KUN15'],
     'vigo 2010 4x4' => [true, 'LAN25'],
     'vigo 2007 2wd' => [true, 'LAN15'],
@@ -416,6 +417,21 @@ $r = ai_search_products($pdo, 'culasse vigo turbo', null, null, 20);
 check('"culasse vigo turbo" finds D4D culasses ("turbo" is not searched as text)', $r && $sansAutreMoteur($r, '\b5L\b|LAN\d', 'D4D|KUN') && array_filter($r, fn($p) => stripos($p['libelle'], 'CULASSE') !== false), array_column($r, 'libelle'));
 $r = ai_search_products($pdo, 'culasse vigo 5l', null, null, 20);
 check('"culasse vigo 5l": no part named for the D4D', $r && $sansAutreMoteur($r, 'D4D|KUN\d', '\b5L\b|LAN'), array_column($r, 'libelle'));
+
+echo "\n== \"vigo\" alone means the 5L, d4d/turbo change it (store owner 23/11)\n";
+$v = ai_resolve_vehicle($pdo, 'vigo');
+check('"vigo": no KUN15 D4D, engine non_turbo', ($v['engine'] ?? null) === 'non_turbo' && !array_filter($v['matches'], fn($m) => stripos($m['label'], 'KUN15') !== false), [$v['engine'] ?? null, array_column($v['matches'], 'label')]);
+$v = ai_resolve_vehicle($pdo, 'vigo 4x2');
+check('"vigo 4x2" -> the 2WD LAN15', $v['unique'] && stripos($v['matches'][0]['label'], 'LAN15') !== false, array_column($v['matches'], 'label'));
+$v = ai_resolve_vehicle($pdo, 'vigo d4d');
+check('"vigo d4d": engine turbo, no LAN15', ($v['engine'] ?? null) === 'turbo' && !array_filter($v['matches'], fn($m) => stripos($m['label'], 'LAN15') !== false), array_column($v['matches'], 'label'));
+$v = ai_resolve_vehicle($pdo, 'vigo kun15');
+check('"vigo kun15" still the KUN15 (a chassis code is not "vigo alone")', $v['unique'] && stripos($v['matches'][0]['label'], 'KUN15') !== false, array_column($v['matches'], 'label'));
+$r = ai_search_products($pdo, 'culasse vigo', null, null, 20);
+check('"culasse vigo": no part named only for the D4D', $r && $sansAutreMoteur($r, 'D4D|KUN\d', '\b5L\b|LAN'), array_column($r, 'libelle'));
+$lan25kun25 = (int)$pdo->query("SELECT id_voiture FROM voiture WHERE REPLACE(modele, ' ', '') = 'VIGO4WDLAN25KUN25'")->fetchColumn();
+$r = ai_search_products($pdo, 'culasse', $lan25kun25, null, 20, null, null, 'atmo');
+check('the engine passed on (non_turbo) filters the Vigo 4WD that holds both engines', $r && $sansAutreMoteur($r, 'D4D|KUN\d', '\b5L\b|LAN'), array_column($r, 'libelle'));
 
 if ($tableMots) {
     $pdo->exec("DELETE FROM ai_mot_appris WHERE mot = 'zzd4d'");
