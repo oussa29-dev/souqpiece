@@ -381,8 +381,8 @@ if (!$tableMots) {
 echo "\n== Vehicle questions in the store owner's order: year, 4x2/4x4, turbo (17/11)\n";
 $suite = [
     'vigo' => [false, 'annee'],
-    'vigo 2010' => [true, 'LAN25'],         // "vigo" alone = 5L: in 2010 only the 4WD (LAN15 ends 2008)
-    'vigo 2010 turbo' => [false, 'traction'],
+    'vigo 2010' => [false, 'traction'],     // after 2008 a Vigo is the D4D: KUN15 2WD or KUN25 4WD
+    'vigo 2007' => [false, 'traction'],     // until 2008 the 5L: LAN15 2WD or LAN25 4WD
     'vigo 2010 4x2' => [true, 'KUN15'],
     'vigo 2010 4x4' => [true, 'LAN25'],
     'vigo 2007 2wd' => [true, 'LAN15'],
@@ -425,6 +425,10 @@ $v = ai_resolve_vehicle($pdo, 'vigo 4x2');
 check('"vigo 4x2" -> the 2WD LAN15', $v['unique'] && stripos($v['matches'][0]['label'], 'LAN15') !== false, array_column($v['matches'], 'label'));
 $v = ai_resolve_vehicle($pdo, 'vigo d4d');
 check('"vigo d4d": engine turbo, no LAN15', ($v['engine'] ?? null) === 'turbo' && !array_filter($v['matches'], fn($m) => stripos($m['label'], 'LAN15') !== false), array_column($v['matches'], 'label'));
+$v = ai_resolve_vehicle($pdo, 'vigo 2012');
+check('"vigo 2012": the D4D (no 5L after 2008), engine turbo', ($v['engine'] ?? null) === 'turbo' && !array_filter($v['matches'], fn($m) => stripos($m['label'], 'LAN15') !== false), [$v['engine'] ?? null, array_column($v['matches'], 'label')]);
+$r = ai_search_products($pdo, 'culasse vigo 2012', null, null, 20);
+check('"culasse vigo 2012": no part named only for the 5L', $sansAutreMoteur($r, '\b5L\b|LAN\d', 'D4D|KUN'), array_column($r, 'libelle'));
 $v = ai_resolve_vehicle($pdo, 'vigo kun15');
 check('"vigo kun15" still the KUN15 (a chassis code is not "vigo alone")', $v['unique'] && stripos($v['matches'][0]['label'], 'KUN15') !== false, array_column($v['matches'], 'label'));
 $r = ai_search_products($pdo, 'culasse vigo', null, null, 20);

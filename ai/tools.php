@@ -494,7 +494,8 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         $moteur = in_array($moteurVoiture, ['turbo', 'atmo'], true) ? $moteurVoiture : null;
     }
     if ($moteur === null && $vigoSeul) {
-        $moteur = 'atmo';
+        $annees = array_filter($terms, fn($t) => preg_match('/^(19|20)\d{2}$/', $t));
+        $moteur = ai_vigo_turbo_par_annee($annees ? (int)reset($annees) : null) ? 'turbo' : 'atmo';
     }
     if ($moteur !== null) {
         // Removed only when its name or descriptions name the other engine
@@ -1048,6 +1049,16 @@ function ai_moteur_demande(array $mots): ?string
     return $turbo === $atmo ? null : ($turbo ? 'turbo' : 'atmo');
 }
 
+// Engine of a Vigo named without engine word: the 5L until 2008, the D4D
+// turbo after (store owner, 24/11: "تحبس في 2008، من بعد تجي d4d"). No year:
+// the 5L. Returns whether it is the turbo.
+const AI_VIGO_DERNIERE_ANNEE_5L = 2008;
+
+function ai_vigo_turbo_par_annee(?int $annee): bool
+{
+    return $annee !== null && $annee > AI_VIGO_DERNIERE_ANNEE_5L;
+}
+
 // The customer's word for the Vigo alone ("vigo", "فيقو", "فيغو"), not a
 // phrase containing it.
 function ai_est_mot_vigo(string $mot): bool
@@ -1230,11 +1241,11 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
 
     // "vigo" alone means the 5L (store owner, 23/11) - unless the customer
     // named the engine or another vehicle word (a chassis code: "vigo
-    // kun15") matched.
+    // kun15") matched. After 2008 there is no 5L: a later year is the D4D.
     if ($turbo === null) {
         $motsVigo = array_filter(array_keys($needleTokens), 'ai_est_mot_vigo');
         if ($motsVigo && !array_diff(array_keys($tokensUtiles), $motsVigo)) {
-            $turbo = false;
+            $turbo = ai_vigo_turbo_par_annee($annee);
         }
     }
 
