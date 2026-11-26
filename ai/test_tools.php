@@ -418,6 +418,32 @@ check('"culasse vigo turbo" finds D4D culasses ("turbo" is not searched as text)
 $r = ai_search_products($pdo, 'culasse vigo 5l', null, null, 20);
 check('"culasse vigo 5l": no part named for the D4D', $r && $sansAutreMoteur($r, 'D4D|KUN\d', '\b5L\b|LAN'), array_column($r, 'libelle'));
 
+echo "\n== Fuzzy fallback needs every word, engine codes and fuel name vehicles, MD2260, ask before listing (25/11)\n";
+$r = ai_search_products($pdo, 'segment 2tr', null, null, 20);
+check('"segment 2tr": only segments for the 2TR (the fallback used to drop "2tr")', $r && !array_filter($r, function ($p) use ($pdo) {
+    $texte = $p['libelle'] . ' ' . $pdo->query('SELECT GROUP_CONCAT(description) FROM pvd WHERE id_produit = ' . (int)$p['id_produit'])->fetchColumn();
+    return stripos($texte, '2TR') === false;
+}), array_column($r, 'libelle'));
+$r = ai_search_products($pdo, 'vilbroqeun coaster', null, null, 20);
+check('"vilbroqeun coaster": the Coaster crankshaft, not a 5L one ("coaster" ~ "CAPTEUR" no longer passes)', $r && !array_filter($r, fn($p) => stripos($p['libelle'], '5L') !== false), array_column($r, 'libelle'));
+$v = ai_resolve_vehicle($pdo, 'hilux 5l');
+check('"hilux 5l": the 5L Hilux, asks 4x2 or 4x4', !$v['unique'] && ($v['question'] ?? null) === 'traction' && !array_filter($v['matches'], fn($m) => stripos($m['label'], 'HILUX') === false), array_column($v['matches'], 'label'));
+$v = ai_resolve_vehicle($pdo, 'coaster 1hz');
+check('"coaster 1hz": the Coaster', $v['unique'] && stripos($v['matches'][0]['label'], 'COASTER') !== false, array_column($v['matches'], 'label'));
+$v = ai_resolve_vehicle($pdo, 'pick up essence');
+check('"pick up essence": the petrol Pick Up (KA24DE), not the TURBO/TD27/QD32', $v['unique'] && stripos($v['matches'][0]['label'], 'KA24DE') !== false, array_column($v['matches'], 'label'));
+$r = ai_search_products($pdo, 'culasse vigo essence', null, null, 20);
+check('"culasse vigo essence": no culasse named only for a diesel engine', $r && $sansAutreMoteur($r, 'D4D|KUN\d|\b5L\b|LAN\d', 'ESS|TGN|2TR|1TR'), array_column($r, 'libelle'));
+$r = ai_lookup_by_reference($pdo, 'MD2260');
+$dispos = array_filter(array_merge(...array_values($r)), fn($l) => !empty($l['disponible']) && !empty($l['meme_designation']));
+check('MD2260 (out of stock): front pads in stock for the same Vigos, also under another name (GDB3427)', count($dispos) >= 2 && array_filter($dispos, fn($l) => stripos($l['libelle'], 'GDB3427') !== false), array_column($dispos, 'libelle'));
+require_once __DIR__ . '/tool_schemas.php';
+$dispatcher = ai_build_tool_dispatcher($pdo);
+$r = $dispatcher('search_products', ['query' => 'plaquette yaris']);
+check('"plaquette yaris": pads of different Yaris -> ask first (year), nothing listed', isset($r['ask_before_listing']) && ($r['question'] ?? null) === 'annee', array_keys($r));
+$r = $dispatcher('search_products', ['query' => 'kit embrayage t6']);
+check('"kit embrayage t6": a kit fits every T6 found -> listed, no question (04/11)', !isset($r['ask_before_listing']) && $r, array_keys($r));
+
 echo "\n== \"vigo\" alone means the 5L, d4d/turbo change it (store owner 23/11)\n";
 $v = ai_resolve_vehicle($pdo, 'vigo');
 check('"vigo": no KUN15 D4D, engine non_turbo', ($v['engine'] ?? null) === 'non_turbo' && !array_filter($v['matches'], fn($m) => stripos($m['label'], 'KUN15') !== false), [$v['engine'] ?? null, array_column($v['matches'], 'label')]);

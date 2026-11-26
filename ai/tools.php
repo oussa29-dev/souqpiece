@@ -299,30 +299,82 @@ function ai_condition_terme(string $colonne, string $term, PDO $pdo, array &$par
 // that small set by word-level Levenshtein distance in PHP - never in SQL,
 // never over the whole catalog. Known limitation: a typo in the term's
 // very first letter won't be caught by the first-letter pre-filter.
+//
+// EVERY word must match (store owner, "segment 2tr" listed segments for any
+// engine: the whole text "segment 2tr" was compared to single words, and
+// "segment" alone was close enough). Words of letters (4+) are matched by
+// edit distance against the product name's words; codes and short words
+// (2tr, av, 5l) must be there as typed, in the name, a description or a
+// reference - a code with a typo is another part.
 function ai_fuzzy_libelle_fallback(PDO $pdo, string $searchText, int $limit = 20): array
 {
-    $normalized = ai_normalize_term($searchText);
-    if (mb_strlen($normalized) < 4) {
-        return []; // too short for edit-distance to be a meaningful signal
+    $motsVides = ['de', 'du', 'des', 'd', 'la', 'le', 'les', 'l', 'pour', 'et', 'a', 'avec', 'en', 'sur'];
+    $mots = array_values(array_filter(
+        preg_split('/\s+/u', ai_normalize_term($searchText)),
+        fn($m) => $m !== '' && !in_array($m, $motsVides, true)
+    ));
+    // The part word: the first word of 4+ letters, matched loosely (30%).
+    $premier = null;
+    foreach ($mots as $k => $m) {
+        if (mb_strlen($m) >= 4 && !preg_match('/\d/', $m)) {
+            $premier = $m;
+            unset($mots[$k]);
+            break;
+        }
+    }
+    if ($premier === null) {
+        return []; // nothing long enough for edit-distance to be a meaningful signal
     }
 
-    $firstChar = mb_substr($normalized, 0, 1);
+    $firstChar = mb_substr($premier, 0, 1);
     $stmt = $pdo->prepare('SELECT id_produit, libelle FROM produit WHERE libelle LIKE ? AND prix > 0 LIMIT 2000');
     $stmt->execute([ai_escape_like($firstChar) . '%']);
     $candidates = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
-    $maxDistance = max(2, (int)ceil(mb_strlen($normalized) * 0.3));
-    $scored = [];
-    foreach ($candidates as $id => $libelle) {
-        $bestDistance = PHP_INT_MAX;
+    $distance = function (string $mot, string $libelle): int {
+        $meilleure = PHP_INT_MAX;
         foreach (preg_split('/\s+/', ai_normalize_term($libelle)) as $word) {
-            if ($word === '') {
-                continue;
+            if ($word !== '') {
+                $meilleure = min($meilleure, levenshtein($mot, $word));
             }
-            $bestDistance = min($bestDistance, levenshtein($normalized, $word));
         }
-        if ($bestDistance <= $maxDistance) {
-            $scored[$id] = $bestDistance;
+        return $meilleure;
+    };
+    $scored = [];
+    $maxDistance = max(2, (int)ceil(mb_strlen($premier) * 0.3));
+    foreach ($candidates as $id => $libelle) {
+        $d = $distance($premier, $libelle);
+        if ($d <= $maxDistance) {
+            $scored[$id] = $d;
+        }
+    }
+
+    // Every other word (the vehicle, a code, a side): there as typed in the
+    // name, a description or a reference ("hilux" is often only in the
+    // description, "2tr" too), or - a word of 4+ letters - one letter off
+    // at most ("COASTR" in a description; but "COASTER" must not pass for
+    // "CAPTEUR", as a looser match did).
+    if ($mots && $scored) {
+        $ids = array_map('intval', array_keys($scored));
+        $marques = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $pdo->prepare("SELECT p.id_produit, CONCAT_WS(' ', p.libelle,
+                (SELECT GROUP_CONCAT(pvd.description SEPARATOR ' ') FROM pvd WHERE pvd.id_produit = p.id_produit),
+                (SELECT GROUP_CONCAT(r.reference SEPARATOR ' ') FROM reference r WHERE r.id_produit = p.id_produit))
+            FROM produit p WHERE p.id_produit IN ($marques)");
+        $stmt->execute($ids);
+        $textes = array_map('ai_normalize_term', $stmt->fetchAll(PDO::FETCH_KEY_PAIR));
+        foreach ($ids as $id) {
+            $texte = $textes[$id] ?? '';
+            foreach ($mots as $mot) {
+                if (mb_strpos($texte, $mot) !== false) {
+                    continue;
+                }
+                if (mb_strlen($mot) >= 4 && !preg_match('/\d/', $mot) && $distance($mot, preg_replace('/[^a-z0-9]+/', ' ', $texte)) <= 1) {
+                    continue;
+                }
+                unset($scored[$id]);
+                break;
+            }
         }
     }
     asort($scored);
@@ -343,7 +395,8 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
     // The engine the customer named (turbo/D4D or 5L/no turbo), read before
     // a taught phrase swallows the words ("vigo d4d" -> the vehicle).
     $moteur = ai_moteur_demande($terms);
-    $vigoSeul = $moteur === null && (bool)array_filter($terms, 'ai_est_mot_vigo')
+    $carburant = ai_carburant_demande($terms);
+    $vigoSeul = $moteur === null && $carburant !== 'essence' && (bool)array_filter($terms, 'ai_est_mot_vigo')
         && !array_filter($terms, fn($t) => preg_match('/^(KUN|LAN|LN)\d+$/i', $t));
     // Phrases taught by the store owner, before the linking words below are
     // dropped ("bras de force"). A vehicle phrase gives the vehicle, unless
@@ -362,7 +415,10 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         $attribut = ai_attribut_vehicule($t);
         $estMotTurbo = $attribut === 'turbo' && !preg_match('/^D-?4D$/i', $t);
         $estNegation = $attribut === 'sans' && ai_attribut_vehicule($terms[$i + 1] ?? '') === 'turbo';
-        if (!$estMotTurbo && !$estNegation) {
+        // Same for essence/diesel (product names write ESS, not ESSENCE) -
+        // except gasoil, also a part word: FILTRE GAZOIL.
+        $estCarburant = ai_mot_carburant($t) !== null && !preg_match('/^GA[SZ]OILE?$/i', $t);
+        if (!$estMotTurbo && !$estNegation && !$estCarburant) {
             $sansMotsMoteur[] = $t;
         }
     }
@@ -504,6 +560,14 @@ function ai_search_products(PDO $pdo, string $query, ?int $id_voiture = null, ?i
         $conditions[] = "NOT ($texte REGEXP ? AND $texte NOT REGEXP ?)";
         $params[] = $moteur === 'turbo' ? AI_REGEXP_MOTEUR_ATMO : AI_REGEXP_MOTEUR_TURBO;
         $params[] = $moteur === 'turbo' ? AI_REGEXP_MOTEUR_TURBO : AI_REGEXP_MOTEUR_ATMO;
+    }
+    // Fuel: same rule - a part written only for the other fuel is left out
+    // ("culasse vigo essence" must not list the D4D or 5L culasses).
+    if ($carburant !== null) {
+        $texte = "CONCAT_WS(' ', produit.libelle, (SELECT GROUP_CONCAT(px.description SEPARATOR ' ') FROM pvd px WHERE px.id_produit = produit.id_produit))";
+        $conditions[] = "NOT ($texte REGEXP ? AND $texte NOT REGEXP ?)";
+        $params[] = $carburant === 'essence' ? AI_REGEXP_DIESEL : AI_REGEXP_ESSENCE;
+        $params[] = $carburant === 'essence' ? AI_REGEXP_ESSENCE : AI_REGEXP_DIESEL;
     }
     if ($id_sous_categorie !== null) {
         $conditions[] = 'produit.id_sous_categorie = ?';
@@ -883,7 +947,7 @@ function ai_equivalents_designation(PDO $pdo, array $trouves, array $exclus): ar
         return false;
     };
     $equivalents = [];
-    foreach (array_merge(array_values($parCode), $parDesignation) as $r) {
+    foreach (array_merge(array_values($parCode), $parDesignation, ai_meme_piece_memes_voitures($pdo, $trouves, $exclus, $premiersMots)) as $r) {
         if (!$contredit($r)) {
             $equivalents[$r['id_produit']] = $equivalents[$r['id_produit']] ?? $r;
         }
@@ -894,8 +958,56 @@ function ai_equivalents_designation(PDO $pdo, array $trouves, array $exclus): ar
 
     return array_map(fn($r) => array_merge($r, [
         'meme_designation' => true,
-        'libelle' => trim($r['libelle']) . ' (réf. ' . trim($r['reference']) . ')',
+        'libelle' => trim($r['libelle']) . (trim((string)$r['reference']) !== '' ? ' (réf. ' . trim($r['reference']) . ')' : ''),
     ]), array_slice(ai_sans_doublons($pdo, $equivalents), 0, 10));
+}
+
+// The same kind of part for the cars the reference fits, available ones only
+// (store owner: "MD2260" - a front brake pad for the Vigo, out of stock -
+// must lead to the Vigo front pads in stock, also when their name differs:
+// "PLAQUETTE VIGO 2WD AV GDB3427"). Searched by the found designation on
+// each of those cars, at most 3. Rows in the same shape as the others.
+function ai_meme_piece_memes_voitures(PDO $pdo, array $trouves, array $exclus, array $premiersMots): array
+{
+    // Only when nothing the reference found is in stock - the case the store
+    // owner described; it costs one search per car.
+    if (array_filter($trouves, fn($r) => (int)($r['stock'] ?? 0) > 0)) {
+        return [];
+    }
+    $marques = implode(',', array_fill(0, count($exclus), '?'));
+    $stmt = $pdo->prepare("SELECT DISTINCT id_voiture FROM pvd WHERE id_produit IN ($marques) LIMIT 3");
+    $stmt->execute($exclus);
+    $voitures = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    // The kind of part and its side, not the whole name: "PLAQUETTE DE
+    // FREIN AV" -> "PLAQUETTE AV", so "PLAQUETTE VIGO 2WD AV GDB3427" counts.
+    $motsDesignation = preg_split('/[^A-Z0-9]+/', ai_designation_normalisee((string)($trouves[0]['libelle'] ?? '')), -1, PREG_SPLIT_NO_EMPTY);
+    $cotes = array_intersect($motsDesignation, ['AV', 'AR', 'AVANT', 'ARRIERE', 'G', 'D', 'DR', 'SUP', 'INF', 'GAUCHE', 'DROITE']);
+    $designation = trim(ai_premier_mot((string)($trouves[0]['libelle'] ?? '')) . ' ' . implode(' ', $cotes));
+    if (!$voitures || $designation === '') {
+        return [];
+    }
+    $exclusSet = array_flip(array_map('intval', $exclus));
+    $lignes = [];
+    foreach ($voitures as $voiture) {
+        foreach (ai_search_products($pdo, $designation, $voiture, null, 8) as $r) {
+            $id = (int)$r['id_produit'];
+            if (empty($r['disponible']) || isset($exclusSet[$id]) || isset($lignes[$id])
+                || !isset($premiersMots[substr(ai_premier_mot((string)$r['libelle']), 0, 5)])) {
+                continue;
+            }
+            $lignes[$id] = ['reference' => '', 'id_produit' => $id, 'libelle' => $r['libelle'],
+                'marquepiece' => $r['marquepiece'], 'prix' => $r['prix'], 'stock' => 1];
+        }
+    }
+    if ($lignes) {
+        $marques = implode(',', array_fill(0, count($lignes), '?'));
+        $stmt = $pdo->prepare("SELECT id_produit, MIN(reference) FROM reference WHERE id_produit IN ($marques) GROUP BY id_produit");
+        $stmt->execute(array_keys($lignes));
+        foreach ($stmt->fetchAll(PDO::FETCH_KEY_PAIR) as $id => $reference) {
+            $lignes[$id]['reference'] = (string)$reference;
+        }
+    }
+    return array_values($lignes);
 }
 
 function ai_premier_mot(string $libelle): string
@@ -1059,6 +1171,72 @@ function ai_vigo_turbo_par_annee(?int $annee): bool
     return $annee !== null && $annee > AI_VIGO_DERNIERE_ANNEE_5L;
 }
 
+// Fuel written in a product's name or description, as whole words: petrol
+// (ESS, ESSENCE, petrol engines 2TR, 1TR, TGN.., KA24DE, 4G..) or diesel
+// (DIESEL, GAZOIL, diesel engines D4D, 1KD, 2KD, 5L, 3L, 2L, 1HZ, 1KZ, QD32,
+// TD27, ZD30, YD25, 4D56, 4M40, KUN.., LAN.., LN..).
+const AI_REGEXP_ESSENCE = '(^|[^A-Z0-9])(ESS|ESSENCE|ESSANCE|BENZINE|PETROL|2TR|1TR|2TR-FE|1TR-FE|2TRE|1TRE|TGN[0-9]*|KA24DE|4G[0-9]{2}|1NZ|2NZ|1ZZ|3SZ|1NR)([^A-Z0-9]|$)';
+const AI_REGEXP_DIESEL = '(^|[^A-Z0-9])(DIESEL|GASOIL|GAZOIL|D-?4D|1KD|2KD|5L|3L|2L|1HZ|1KZ|QD32|TD27|ZD30|YD25|4D56|4M40|1GD|2GD|DCI|HDI|TDI|KUN[0-9]*|LAN[0-9]+|LN[0-9]+)([^A-Z0-9]|$)';
+
+// The fuel a customer's words name: 'essence' (essence, ess, بنزين,
+// ليصانص, a petrol engine code: 2TR...), 'diesel' (diesel, gasoil, مازوت,
+// a diesel engine code: D4D, 5L, QD32...), or null (none, or both).
+function ai_carburant_demande(array $mots): ?string
+{
+    $essence = false;
+    $diesel = false;
+    foreach ($mots as $mot) {
+        $carburant = ai_mot_carburant($mot);
+        $majuscule = mb_strtoupper(trim($mot));
+        $essence = $essence || $carburant === 'essence' || preg_match('/^(2TR|1TR|2TR-?FE|1TR-?FE|KA24DE|4G\d{2}|1NZ|2NZ|1ZZ|3SZ|1NR)$/', $majuscule);
+        $diesel = $diesel || $carburant === 'diesel' || ai_attribut_vehicule($mot) === 'turbo'
+            || preg_match('/^(1KD|2KD|5L|3L|2L|1HZ|1KZ|QD32|TD27|ZD30|YD25|4D56|4M40|1GD|2GD)$/', $majuscule);
+    }
+    return $essence === $diesel ? null : ($essence ? 'essence' : 'diesel');
+}
+
+// A fuel word: 'essence', 'diesel' or null. "gasoil" is also a part word
+// (FILTRE GAZOIL), so it names the diesel but stays in the searched text.
+function ai_mot_carburant(string $mot): ?string
+{
+    $mot = mb_strtoupper(trim($mot));
+    if (in_array($mot, ['ESSENCE', 'ESSANCE', 'ESS', 'BENZINE', 'PETROL', 'بنزين', 'ليصانص', 'ليسانس', 'اسانس', 'ايسانس', 'ايسونس', 'ليسونس', 'اسونس'], true)) {
+        return 'essence';
+    }
+    if (in_array($mot, ['DIESEL', 'DIZEL', 'GASOIL', 'GAZOIL', 'GAZOILE', 'MAZOUT', 'مازوت', 'ديزل', 'قازوال', 'غازوال', 'كازوال'], true)) {
+        return 'diesel';
+    }
+    return null;
+}
+
+// A word that looks like an engine code - 5L, 2TR, 1KD, 2KD-FTV, 1HZ, 4D56,
+// QD32, YD25 - rather than a part word or a year.
+function ai_est_code_moteur(string $mot): bool
+{
+    $mot = mb_strtoupper(trim($mot));
+    return !preg_match('/^(19|20)\d{2}$/', $mot) && !preg_match('/^D-?4D$/', $mot)
+        && (bool)preg_match('/^(\d[A-Z]{1,3}(-[A-Z]{1,4})?|\d[A-Z]\d{2}|[A-Z]{2}\d{2}[A-Z]{0,2})$/', $mot);
+}
+
+// Vehicles an engine code belongs to, read from the descriptions of the
+// parts linked to them: "5L" -> Vigo LAN15 (178 parts say it), Hilux
+// LN145/LN166; "2TR" -> Vigo LAN15; "QD32" -> Pick Up QD32. A vehicle
+// counts from 3 parts and 20% of the most-cited one, so a part linked by
+// mistake (one "5L" part on the Vigo D4D) does not make it a 5L.
+function ai_voitures_par_code_moteur(PDO $pdo, string $code): array
+{
+    static $cache = [];
+    $code = mb_strtoupper(trim($code));
+    if (!isset($cache[$code])) {
+        $stmt = $pdo->prepare('SELECT id_voiture, COUNT(*) FROM pvd WHERE description REGEXP ? GROUP BY id_voiture');
+        $stmt->execute(['(^|[^A-Z0-9])' . preg_quote($code) . '([^A-Z0-9]|$)']);
+        $compte = array_map('intval', $stmt->fetchAll(PDO::FETCH_KEY_PAIR));
+        $max = $compte ? max($compte) : 0;
+        $cache[$code] = array_map('intval', array_keys(array_filter($compte, fn($n) => $n >= 3 && $n >= 0.2 * $max)));
+    }
+    return $cache[$code];
+}
+
 // The customer's word for the Vigo alone ("vigo", "فيقو", "فيغو"), not a
 // phrase containing it.
 function ai_est_mot_vigo(string $mot): bool
@@ -1172,6 +1350,7 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
     // (5 letters) above every Vigo (4).
     $traction = null;
     $turbo = null;
+    $carburant = null;
     $appris = ai_mots_appris($pdo);
     foreach ($tokens as $i => $token) {
         if (preg_match('/^(19|20)\d{2}$/', $token)) {
@@ -1191,6 +1370,12 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
         }
         if ($attribut === 'turbo') {
             $turbo = $turbo ?? true;
+            continue;
+        }
+        // Essence / diesel narrow the candidates too ("pick up essence").
+        $motCarburant = isset($appris[ai_cle_mot_appris($token)]) ? null : ai_mot_carburant($token);
+        if ($motCarburant !== null) {
+            $carburant = $carburant === null || $carburant === $motCarburant ? $motCarburant : 'les_deux';
             continue;
         }
         $arabe = ai_arabic_alias_lookup($token, $pdo);
@@ -1239,10 +1424,48 @@ function ai_resolve_vehicle(PDO $pdo, string $free_text): array
         }
     }
 
+    // An engine code no vehicle name holds (5L, 2TR, 1HZ, 4D56) names the
+    // vehicles whose parts say it: "hilux 5L" keeps the 5L Hilux, "2tr" alone
+    // gives the Vigo 2TR.
+    foreach (array_keys($needleTokens) as $original) {
+        if (isset($tokensUtiles[$original]) || !ai_est_code_moteur($original)) {
+            continue;
+        }
+        $idsCode = ai_voitures_par_code_moteur($pdo, $original);
+        if (!$idsCode) {
+            continue;
+        }
+        $tokensUtiles[$original] = true;
+        if ($scored) {
+            $filtre = array_values(array_filter($scored, fn($row) => in_array((int)$row['id_voiture'], $idsCode, true)));
+            $scored = $filtre ?: $scored;
+        } else {
+            foreach ($all as $row) {
+                if (in_array((int)$row['id_voiture'], $idsCode, true)) {
+                    $scored[] = $row + ['score' => strlen($original)];
+                }
+            }
+        }
+    }
+    if ($carburant === null) {
+        $carburant = ai_carburant_demande(array_keys($needleTokens));
+    }
+    if (in_array($carburant, ['essence', 'diesel'], true)) {
+        $autre = $carburant === 'essence' ? AI_REGEXP_DIESEL : AI_REGEXP_ESSENCE;
+        $voulu = $carburant === 'essence' ? AI_REGEXP_ESSENCE : AI_REGEXP_DIESEL;
+        $filtre = array_values(array_filter($scored, function ($row) use ($autre, $voulu) {
+            // A vehicle named TURBO is a diesel here (Nissan PICK UP TURBO).
+            $nom = str_replace('TURBO', 'DIESEL', mb_strtoupper($row['modele']));
+            return !(preg_match('/' . $autre . '/u', $nom) && !preg_match('/' . $voulu . '/u', $nom));
+        }));
+        $scored = $filtre ?: $scored;
+    }
+
     // "vigo" alone means the 5L (store owner, 23/11) - unless the customer
     // named the engine or another vehicle word (a chassis code: "vigo
     // kun15") matched. After 2008 there is no 5L: a later year is the D4D.
-    if ($turbo === null) {
+    // Not with essence: a petrol Vigo is the 2TR, neither 5L nor D4D.
+    if ($turbo === null && $carburant !== 'essence') {
         $motsVigo = array_filter(array_keys($needleTokens), 'ai_est_mot_vigo');
         if ($motsVigo && !array_diff(array_keys($tokensUtiles), $motsVigo)) {
             $turbo = ai_vigo_turbo_par_annee($annee);

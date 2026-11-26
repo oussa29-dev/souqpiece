@@ -100,6 +100,49 @@ function ai_arg_int_optionnel(array $args, string $cle): ?int
     return $valeur > 0 ? $valeur : null;
 }
 
+// A search without a chosen vehicle whose parts are for DIFFERENT versions of
+// the customer's car - store owner: "plaquet vigo" listed pads of three
+// Vigos mixed, the customer cannot tell which is his. Then the model asks
+// first (year -> 4x2/4x4 -> turbo), and lists after. Parts that fit the same
+// versions ("KIT EMB MAZDA BT50/FORD T6", 04/11) are listed as before.
+// Returns null when no question is needed.
+function ai_question_avant_liste(PDO $pdo, string $query, array $resultats): ?array
+{
+    if (count($resultats) < 2) {
+        return null;
+    }
+    $vehicule = ai_resolve_vehicle($pdo, $query);
+    if (!empty($vehicule['unique']) || count($vehicule['matches'] ?? []) < 2) {
+        return null;
+    }
+    $candidats = array_map(fn($m) => (int)$m['id_voiture'], $vehicule['matches']);
+    $ids = array_map(fn($r) => (int)$r['id_produit'], $resultats);
+    $stmt = $pdo->prepare('SELECT id_produit, id_voiture FROM pvd WHERE id_produit IN (' . implode(',', array_fill(0, count($ids), '?')) . ')
+                           AND id_voiture IN (' . implode(',', array_fill(0, count($candidats), '?')) . ')');
+    $stmt->execute(array_merge($ids, $candidats));
+    $versions = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $lien) {
+        $versions[(int)$lien['id_produit']][] = (int)$lien['id_voiture'];
+    }
+    // No question when one part fits every version the results are for: it
+    // is the answer whatever the customer's version.
+    $toutes = array_unique(array_merge([], ...array_values($versions)));
+    if (count($toutes) < 2) {
+        return null;
+    }
+    foreach ($versions as $voitures) {
+        if (!array_diff($toutes, $voitures)) {
+            return null;
+        }
+    }
+    return [
+        'ask_before_listing' => 'These parts are for different versions of the customer\'s vehicle (' . implode(' / ', array_column($vehicule['matches'], 'label'))
+            . '). Do NOT list them yet. ' . ai_consigne_question_vehicule($vehicule['question'] ?? 'modele')
+            . ' Once the customer answers, call resolve_vehicle with the vehicle words plus the answer, then search_products with the id_voiture it returns.',
+        'question' => $vehicule['question'] ?? 'modele',
+    ];
+}
+
 // What to ask when the vehicle must be narrowed down (`question` of
 // ai_resolve_vehicle): one short question at a time, in the store owner's
 // order - year, then 4x2/4x4, then turbo - and the list of models only last.
@@ -120,7 +163,7 @@ function ai_build_tool_dispatcher(PDO $pdo, bool $tarifGros = false): callable
     $dispatcher = function (string $name, array $args) use ($pdo): array {
         switch ($name) {
             case 'search_products':
-                return ai_search_products(
+                $resultats = ai_search_products(
                     $pdo,
                     (string)($args['query'] ?? ''),
                     ai_arg_int_optionnel($args, 'id_voiture'),
@@ -130,6 +173,14 @@ function ai_build_tool_dispatcher(PDO $pdo, bool $tarifGros = false): callable
                     ai_arg_int_optionnel($args, 'max_price'),
                     ['turbo' => 'turbo', 'non_turbo' => 'atmo'][(string)($args['engine'] ?? '')] ?? null
                 );
+                if (ai_arg_int_optionnel($args, 'id_voiture') === null) {
+                    $question = ai_question_avant_liste($pdo, (string)($args['query'] ?? ''), $resultats);
+                    if ($question !== null) {
+                        // Without the rows: given them, the model lists anyway.
+                        return $question + ['parts_found' => count($resultats)];
+                    }
+                }
+                return $resultats;
             case 'lookup_by_reference':
                 return ai_lookup_by_reference($pdo, (string)($args['reference'] ?? ''));
             case 'resolve_vehicle':
